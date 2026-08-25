@@ -218,13 +218,63 @@ Three tiers, of which the first two are implemented:
    varies by version), and a wider transport surface — if added, it must be isolated in a
    listener that can only emit whitelisted subscribe events.
 
-## 10. Phasing
+## 10. List filtering (design)
+
+Desk's list filters are not hand-built per DocType either — they are generated from the same
+metadata Tula already fetches, so the native filter UI can be one generic component set.
+
+**Wire model.** Every filter is a `[fieldname, operator, value]` tuple passed in the list
+endpoint's `filters` GET parameter — the transport Tula already uses, so filtering adds zero
+new API surface and cannot violate the read-only guarantee. Frappe's operator vocabulary:
+`=`, `!=`, `like`, `not like`, `in`, `not in`, `>`, `<`, `>=`, `<=`, `between`,
+`is` (set / not set), `timespan` (named ranges like "last month"), and `descendants of` /
+`ancestors of` for tree DocTypes (Account). `or_filters` (same shape, OR-combined) is also
+GET-able for later.
+
+**Metadata hooks.** Three drive the whole UI:
+- `DocField.in_standard_filter` — the fields Desk shows as its sidebar "Filter By" quick
+  filters (Status, Customer, Company, …). Tula renders exactly these as the quick-filter row.
+- `fieldtype` — selects both the legal operator set and the value editor.
+- `meta.sort_field` / `sort_order` — default sort; any field is sortable via `order_by`.
+
+**Operator sets by fieldtype** (mirroring Desk):
+
+| Fieldtype | Operators | Native value editor |
+|---|---|---|
+| Data / Text | like, not like, =, !=, is | `TextField` |
+| Link | =, !=, in, not in, like, is (+ descendants of on trees) | autocomplete via `frappe.desk.search.search_link` (new whitelisted `ReadMethod`) |
+| Select | =, !=, in, not in, is | `Menu` of the field's options |
+| Check | = | Yes / No menu |
+| Int / Float / Currency / Percent | =, !=, >, <, >=, <=, between, is | numeric field(s) |
+| Date / Datetime | =, >, <, >=, <=, between, timespan, is | `DatePicker`(s) or named-range menu |
+
+**Native components** (all generic, all metadata-driven):
+1. **Quick-filter row** — one control per `in_standard_filter` field, rendered as menu
+   chips under the toolbar. ⚠ Must respect the beta-SDK landmine (§ memory): no `Text`
+   siblings beside menu pickers in an HStack — chips are self-contained `Menu`s.
+2. **Filter editor** — an "Add Filter" popover/sheet: field picker (all presentable fields
+   plus standard fields `name`, `owner`, `creation`, `modified`, `workflow_state`) →
+   operator picker (table above) → value editor. Active conditions render as removable
+   chips. One component serves every DocType.
+3. **Link autocomplete** — `search_link(doctype, txt)` returns value/description pairs;
+   reused later for report filters (§7 v2) and the ⌘K omnibar.
+4. **Sort menu** — toolbar menu over the list fields, feeding `order_by`; macOS `Table`
+   header-click sorting can map to the same server-side sort later.
+5. **Persistence** — last-used conditions per DocType in UserDefaults (same pattern as
+   child-table column prefs). Desk's server-side saved filters (the `List Filter` DocType)
+   are *readable* with normal perms, so they can be offered as read-only presets; creating
+   them stays out of scope (write).
+
+**Suggested order:** quick filters first (small, most of the daily value), then the generic
+editor + Link autocomplete, then saved-filter presets / `or_filters` / tree operators.
+
+## 11. Phasing
 
 - **Phase 1 (this repo, now):** kit + read-only transport; report engine; generic
   report/list/form renderers; P&L, Balance Sheet, Cash Flow, Trial Balance, GL wired in the
   sidebar; demo mode; Settings with Keychain-backed credentials.
 - **Phase 2:** Chart of Accounts tree, report filter parsing from `get_script`, list-view
-  filters/sorting UI, report → drill-down routes (P&L row → GL), attachment/image loading,
+  filters/sorting UI (design in §10), report → drill-down routes (P&L row → GL), attachment/image loading,
   meta + report caching for offline viewing. Search grows in two steps beyond the shipped
   per-list search (`.searchable` → server-side `like` filter on the title field): typed
   link-field search via `frappe.desk.search.search_link`, and a ⌘K global omnibar via
