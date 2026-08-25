@@ -1,0 +1,115 @@
+import Foundation
+
+/// Everything the UI needs from a server, as read operations only.
+/// Two implementations: `LiveDataSource` (a real ERPNext site over
+/// `ReadOnlyClient`) and `DemoDataSource` (bundled fixtures, no network).
+public protocol DataSource: Sendable {
+    var displayName: String { get }
+
+    func ping() async throws
+    func companies() async throws -> [Company]
+    func fiscalYears() async throws -> [FiscalYear]
+    func runReport(_ reportName: String, filters: [String: FrappeValue]) async throws -> ReportResult
+
+    /// The DocType's metadata plus the metadata of all its child tables.
+    func metaBundle(for doctype: String) async throws -> [DocTypeMeta]
+    func list(
+        _ doctype: String, fields: [String], filters: [ListFilter],
+        orderBy: String?, limitStart: Int, limitPageLength: Int
+    ) async throws -> [Document]
+    func document(_ doctype: String, name: String) async throws -> Document
+}
+
+extension DataSource {
+    /// Cheap change probe: the `modified` timestamp of the most recently
+    /// changed row of a DocType, via a one-row GET. Every financial statement
+    /// derives from GL Entry postings, so polling this for "GL Entry" is a
+    /// near-free signal that any report on screen is stale. Returns nil when
+    /// the source has no signal (demo mode, empty tables) — callers treat
+    /// that as "never auto-refresh".
+    public func latestModified(_ doctype: String) async throws -> String? {
+        let rows = try await list(
+            doctype, fields: ["modified"], filters: [],
+            orderBy: "modified desc", limitStart: 0, limitPageLength: 1)
+        return rows.first?.raw["modified"]?.nonEmptyString
+    }
+}
+
+public struct LiveDataSource: DataSource {
+    public let client: ReadOnlyClient
+
+    public init(client: ReadOnlyClient) {
+        self.client = client
+    }
+
+    public var displayName: String {
+        client.configuration.baseURL.host() ?? client.configuration.baseURL.absoluteString
+    }
+
+    public func ping() async throws {
+        _ = try await client.data(for: .method(.ping, parameters: [:]))
+    }
+
+    public func companies() async throws -> [Company] {
+        let data = try await client.data(
+            for: .resourceList(
+                doctype: "Company",
+                fields: ["name", "default_currency"],
+                filters: [], orderBy: "name asc", limitStart: 0, limitPageLength: 100))
+        return try Document.list(from: data).map {
+            Company(
+                name: $0.name,
+                defaultCurrency: $0["default_currency"]?.nonEmptyString)
+        }
+    }
+
+    public func fiscalYears() async throws -> [FiscalYear] {
+        let data = try await client.data(
+            for: .resourceList(
+                doctype: "Fiscal Year",
+                fields: ["name", "year_start_date", "year_end_date"],
+                filters: [ListFilter("disabled", "=", .int(0))],
+                orderBy: "year_start_date desc", limitStart: 0, limitPageLength: 50))
+        return try Document.list(from: data).compactMap { doc in
+            guard let start = doc["year_start_date"]?.nonEmptyString,
+                let end = doc["year_end_date"]?.nonEmptyString
+            else { return nil }
+            return FiscalYear(name: doc.name, startDate: start, endDate: end)
+        }
+    }
+
+    public func runReport(_ reportName: String, filters: [String: FrappeValue]) async throws
+        -> ReportResult {
+        let data = try await client.data(
+            for: .method(
+                .runQueryReport,
+                parameters: [
+                    "report_name": reportName,
+                    "filters": try FrappeValue.object(filters).encodedJSONString(),
+                    "ignore_prepared_report": "1",
+                ]))
+        return try ReportResult.decode(from: data)
+    }
+
+    public func metaBundle(for doctype: String) async throws -> [DocTypeMeta] {
+        let data = try await client.data(
+            for: .method(.getDocType, parameters: ["doctype": doctype, "with_parent": "1"]))
+        return try MetaDecoder.bundle(from: data)
+    }
+
+    public func list(
+        _ doctype: String, fields: [String], filters: [ListFilter],
+        orderBy: String?, limitStart: Int, limitPageLength: Int
+    ) async throws -> [Document] {
+        let data = try await client.data(
+            for: .resourceList(
+                doctype: doctype, fields: fields, filters: filters,
+                orderBy: orderBy, limitStart: limitStart, limitPageLength: limitPageLength))
+        return try Document.list(from: data)
+    }
+
+    public func document(_ doctype: String, name: String) async throws -> Document {
+        let data = try await client.data(for: .resource(doctype: doctype, name: name))
+        return try Document.single(from: data)
+    }
+}
