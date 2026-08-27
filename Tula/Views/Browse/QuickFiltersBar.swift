@@ -15,13 +15,29 @@ struct QuickFiltersBar: View {
     let meta: DocTypeMeta
     @Binding var values: [String: String]
 
+    /// Desk's standard filter row: synthesized ID and Title chips plus the
+    /// DocType's `in_standard_filter` fields.
     private var fields: [DocField] {
-        meta.standardFilterFields.filter { supports($0.fieldtype) }
+        var chips: [DocField] = [
+            DocField(raw: [
+                "fieldname": .string("name"), "label": .string("ID"),
+                "fieldtype": .string("Data"),
+            ])
+        ]
+        if let titleField = meta.titleField, let field = meta.field(named: titleField),
+            field.fieldtype == .data {
+            chips.append(field)
+        }
+        for field in meta.standardFilterFields
+        where supports(field.fieldtype) && !chips.contains(where: { $0.fieldname == field.fieldname }) {
+            chips.append(field)
+        }
+        return chips
     }
 
     private func supports(_ fieldtype: FieldType) -> Bool {
         switch fieldtype {
-        case .select, .link, .check: return true
+        case .select, .link, .check, .data: return true
         default: return false
         }
     }
@@ -56,6 +72,8 @@ struct QuickFiltersBar: View {
         switch field.fieldtype {
         case .link:
             LinkFilterChip(field: field, value: $values[field.fieldname])
+        case .data:
+            TextFilterChip(field: field, value: $values[field.fieldname])
         default:
             Menu {
                 Button("Any \(field.label)") {
@@ -253,6 +271,61 @@ private struct LinkFilterChip: View {
 
     private func apply(_ newValue: String?) {
         value = newValue
+        showingPopover = false
+    }
+}
+
+/// A free-text quick filter (ID, Title, Data-type standard filters): the
+/// chip opens a small text popover; the value applies as a `like` match.
+private struct TextFilterChip: View {
+    let field: DocField
+    @Binding var value: String?
+
+    @State private var showingPopover = false
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button {
+            text = value ?? ""
+            showingPopover = true
+        } label: {
+            FilterChipLabel(
+                title: value.map { "\(field.label): \($0)" } ?? field.label,
+                isActive: value != nil)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+            VStack(spacing: 10) {
+                TextField(field.label, text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .focused($focused)
+                    .onSubmit { apply() }
+                HStack {
+                    if value != nil {
+                        Button("Clear") {
+                            value = nil
+                            showingPopover = false
+                        }
+                    }
+                    Spacer()
+                    Button("Apply") { apply() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(12)
+            #if os(macOS)
+                .frame(width: 260)
+            #endif
+            .onAppear { focused = true }
+        }
+    }
+
+    private func apply() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = trimmed.isEmpty ? nil : trimmed
         showingPopover = false
     }
 }

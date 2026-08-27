@@ -95,6 +95,16 @@ enum ValueFormatting {
         }
     }
 
+    /// Wire-format helpers for the filter editor's date pickers.
+    static func wireDateValue(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        return wireDate.date(from: String(raw.prefix(10)))
+    }
+
+    static func wireDateString(_ date: Date) -> String {
+        wireDate.string(from: date)
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated

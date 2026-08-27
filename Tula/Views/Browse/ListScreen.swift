@@ -20,6 +20,11 @@ struct ListScreen: View {
     @State private var sortOverride: SortSpec?
     @State private var isLoadingMore = false
     @State private var totalCount: Int?
+    /// Detailed filter-editor conditions (Desk's "Filter" popover).
+    @State private var advancedFilters: [FilterCondition] = []
+    @State private var showingFilterEditor = false
+    /// macOS Table header-click sort state, mirrored into `sortOverride`.
+    @State private var tableSort: [DocumentFieldComparator] = []
 
     struct SortSpec: Hashable {
         var fieldname: String
@@ -80,6 +85,7 @@ struct ListScreen: View {
         .navigationTitle(doctype)
         .searchable(text: $searchText, prompt: Text("Search \(doctype)"))
         .toolbar {
+            filterToolbar
             sortToolbar
             OpenInDeskToolbar(route: .doctypeList(doctype))
             RefreshToolbar(lastUpdated: lastUpdated, detail: countDetail) { refreshToken += 1 }
@@ -111,11 +117,13 @@ struct ListScreen: View {
         return "list|\(model.sourceGeneration)|\(doctype)|\(filtersKey)|\(sort)"
     }
 
-    /// Stable task-id component for the quick-filter dictionary.
+    /// Stable task-id component for both filter mechanisms.
     private var filtersKey: String {
-        quickFilters.sorted { $0.key < $1.key }
+        let quick = quickFilters.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "&")
+        let advanced = advancedFilters.map(\.key).joined(separator: "&")
+        return "\(quick)|\(advanced)"
     }
 
     private var countDetail: String? {
@@ -123,6 +131,38 @@ struct ListScreen: View {
             totalCount > loaded.rows.count
         else { return nil }
         return "\(loaded.rows.count) of \(totalCount.formatted())"
+    }
+
+    // MARK: Detailed filters
+
+    @ToolbarContentBuilder
+    private var filterToolbar: some ToolbarContent {
+        if case .loaded(let loaded) = state {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingFilterEditor = true
+                } label: {
+                    Label(
+                        "Filter",
+                        systemImage: advancedFilters.isEmpty
+                            ? "line.3.horizontal.decrease.circle"
+                            : "line.3.horizontal.decrease.circle.fill")
+                }
+                .help("Filter \(doctype)")
+                .onAppear {
+                    // Headless-verification hook (TULA_AUTOOPEN_FILTER=editor).
+                    if ProcessInfo.processInfo.environment["TULA_AUTOOPEN_FILTER"] == "editor" {
+                        showingFilterEditor = true
+                    }
+                }
+                .popover(isPresented: $showingFilterEditor, arrowEdge: .bottom) {
+                    FilterEditorView(meta: loaded.meta, applied: $advancedFilters)
+                        #if !os(macOS)
+                            .presentationDetents([.medium, .large])
+                        #endif
+                }
+            }
+        }
     }
 
     // MARK: Sort
@@ -196,13 +236,16 @@ struct ListScreen: View {
     private var emptyState: some View {
         if !searchText.isEmpty {
             ContentUnavailableView.search(text: searchText)
-        } else if !quickFilters.isEmpty {
+        } else if !quickFilters.isEmpty || !advancedFilters.isEmpty {
             ContentUnavailableView {
                 Label("No Matches", systemImage: "line.3.horizontal.decrease.circle")
             } description: {
                 Text("No \(doctype) records match the current filters.")
             } actions: {
-                Button("Clear Filters") { quickFilters = [:] }
+                Button("Clear Filters") {
+                    quickFilters = [:]
+                    advancedFilters = []
+                }
             }
         } else {
             ContentUnavailableView("No \(doctype) records", systemImage: "tray")
@@ -214,8 +257,12 @@ struct ListScreen: View {
     @ViewBuilder
     private func listBody(_ loaded: Loaded) -> some View {
         #if os(macOS)
-            Table(loaded.rows) {
-                TableColumn("Title") { document in
+            Table(loaded.rows, sortOrder: $tableSort) {
+                TableColumn(
+                    "Title",
+                    sortUsing: DocumentFieldComparator(
+                        fieldname: loaded.meta.titleField ?? "name")
+                ) { document in
                     NavigationLink(
                         value: Route.document(doctype: doctype, name: document.name)
                     ) {
@@ -227,7 +274,9 @@ struct ListScreen: View {
                     .onAppear { maybeLoadMore(after: document, in: loaded) }
                 }
                 if let statusField = loaded.statusField {
-                    TableColumn("Status") { document in
+                    TableColumn(
+                        "Status", sortUsing: DocumentFieldComparator(fieldname: "status")
+                    ) { document in
                         FieldValueView(
                             fieldname: statusField.fieldname,
                             fieldtype: statusField.fieldtype,
@@ -237,7 +286,10 @@ struct ListScreen: View {
                     }
                 }
                 TableColumnForEach(loaded.middleColumns) { field in
-                    TableColumn(field.label) { document in
+                    TableColumn(
+                        field.label,
+                        sortUsing: DocumentFieldComparator(fieldname: field.fieldname)
+                    ) { document in
                         FieldValueView(
                             fieldname: field.fieldname,
                             fieldtype: field.fieldtype,
@@ -250,15 +302,28 @@ struct ListScreen: View {
                             linkEnabled: false)
                     }
                 }
-                TableColumn("ID") { document in
+                TableColumn(
+                    "ID", sortUsing: DocumentFieldComparator(fieldname: "name")
+                ) { document in
                     Text(document.name)
                         .foregroundStyle(.secondary)
                 }
-                TableColumn("Modified") { document in
+                TableColumn(
+                    "Modified", sortUsing: DocumentFieldComparator(fieldname: "modified")
+                ) { document in
                     Text(
                         ValueFormatting.relativeModified(
                             document.raw["modified"]?.nonEmptyString) ?? "")
                         .foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: tableSort) { _, order in
+                guard let first = order.first else { return }
+                let spec = SortSpec(
+                    fieldname: first.fieldname,
+                    descending: first.order == .reverse)
+                if spec != loaded.sort {
+                    sortOverride = spec
                 }
             }
         #else
@@ -334,7 +399,20 @@ struct ListScreen: View {
                 ListFilter(meta.titleField ?? "name", "like", .string("%\(trimmed)%")))
         }
         for (fieldname, value) in quickFilters {
-            filters.append(ListFilter(fieldname, "=", .string(value)))
+            // Free-text chips (ID, Title, Data fields) match like Desk's
+            // standard filters: substring. Finite chips stay equality.
+            let fieldtype = fieldname == "name"
+                ? FieldType.data : meta.field(named: fieldname)?.fieldtype
+            if fieldtype == .data {
+                filters.append(ListFilter(fieldname, "like", .string("%\(value)%")))
+            } else {
+                filters.append(ListFilter(fieldname, "=", .string(value)))
+            }
+        }
+        for condition in advancedFilters {
+            if let filter = condition.listFilter() {
+                filters.append(filter)
+            }
         }
         return filters
     }
@@ -395,6 +473,11 @@ struct ListScreen: View {
                 meta: meta, columns: columns, rows: rows, sort: sort,
                 hasMore: rows.count == limit)
             state = .loaded(loaded)
+            tableSort = [
+                DocumentFieldComparator(
+                    fieldname: sort.fieldname,
+                    order: sort.descending ? .reverse : .forward)
+            ]
             lastUpdated = Date()
             model.cache.setScreen(cacheKey, loaded)
 
@@ -431,6 +514,34 @@ struct ListScreen: View {
             model.cache.setScreen(cacheKey, loaded)
         } catch {
             // Silent: the next scroll attempt retries.
+        }
+    }
+}
+
+
+/// Sort comparator for Table header clicks, keyed by fieldname. The actual
+/// ordering is re-fetched server-side; this local comparison only bridges
+/// SwiftUI's Table sort mechanism.
+struct DocumentFieldComparator: SortComparator {
+    var fieldname: String
+    var order: SortOrder = .forward
+
+    func compare(_ lhs: Document, _ rhs: Document) -> ComparisonResult {
+        let left = lhs.raw[fieldname]
+        let right = rhs.raw[fieldname]
+        let ascending: ComparisonResult
+        if let l = left?.doubleValue, let r = right?.doubleValue {
+            ascending = l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
+        } else {
+            let l = left?.stringValue ?? ""
+            let r = right?.stringValue ?? ""
+            ascending = l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
+        }
+        guard order == .reverse else { return ascending }
+        switch ascending {
+        case .orderedAscending: return .orderedDescending
+        case .orderedDescending: return .orderedAscending
+        case .orderedSame: return .orderedSame
         }
     }
 }
