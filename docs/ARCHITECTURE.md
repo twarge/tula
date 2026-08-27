@@ -302,19 +302,73 @@ invalidation signal; everything keyed by server+user and wiped on `sourceGenerat
 4. **Never cached:** autocomplete, counts, anything cross-identity. Credentials stay in the
    Keychain only.
 
-## 12. Phasing
+## 12. Roadmap
 
-- **Phase 1 (this repo, now):** kit + read-only transport; report engine; generic
-  report/list/form renderers; P&L, Balance Sheet, Cash Flow, Trial Balance, GL wired in the
-  sidebar; demo mode; Settings with Keychain-backed credentials.
-- **Phase 2:** Chart of Accounts tree, report filter parsing from `get_script`, list-view
-  filters/sorting UI (design in §10), report → drill-down routes (P&L row → GL), attachment/image loading,
-  meta + report caching for offline viewing. Search grows in two steps beyond the shipped
-  per-list search (`.searchable` → server-side `like` filter on the title field): typed
-  link-field search via `frappe.desk.search.search_link`, and a ⌘K global omnibar via
-  `frappe.utils.global_search.search` (results are doctype+name pairs → existing `Route`s);
-  both are whitelisted read methods that slot into the `ReadMethod` enum.
-- **Phase 3:** Workspaces as the sidebar source (server-defined navigation), dashboards via
-  Swift Charts, number cards, saved report views, PDF export via `ImageRenderer`.
-- **Explicitly deferred:** anything that writes; print formats; custom client scripts;
-  WebKit-dependent HTML rendering.
+**Shipped (Phases 1–2, Aug 2026):** read-only kit + report engine; generic report/list/form
+renderers; the five financial statements; Desk-conformant forms (depends_on via
+JavaScriptCore, card grouping, blank fields, base-currency twins, HTML→native tables, child
+tables with Desk GridView columns, row-detail sheets); Desk-parity lists (title/status/ID/
+modified recipe, saved List View Settings columns, saved sort + header/menu sorting, quick
+filter chips incl. synthesized ID/Title, type-ahead link filters, detailed filter editor,
+search, count, infinite scroll); auto-refresh probes; three-tier caching with offline report
+snapshots; Open in Desk; demo mode; stable code signing.
+
+### Phase 3 — the report long tail (highest value next)
+
+Today only the five standard statements run; ERPNext ships hundreds of reports (AR/AP aging,
+stock, tax). All of them already work through the same `query_report.run` renderer — what's
+missing is navigation and filters:
+
+1. **Report browser** — list the `Report` DocType (readable) grouped by module in the
+   sidebar; route every entry to the existing `ReportScreen`. (S)
+2. **Report filter parsing** — fetch `query_report.get_script`, tolerantly parse the
+   `filters: [...]` literal into native filter definitions (field/type/options/default/
+   mandatory), rendered by the same field-registry controls as the list filter editor;
+   fall back to the native financial-statement sets. (M)
+3. **Drill-down** — report → report routes with carried filters (P&L/BS account row → GL
+   for that account and period), Desk's core accountant workflow. (S–M)
+4. **Report charts** — `query_report.run` already returns `chart` config; render with
+   Swift Charts above the grid. (M)
+
+### Phase 4 — navigation & document breadth
+
+5. **Workspaces as the sidebar** — read the `Workspace` DocType (links, shortcuts, cards)
+   so the sidebar mirrors the server's own navigation; hardcoded Browse list becomes the
+   fallback. Any module the server adds appears with zero app code. (M)
+6. **⌘K omnibar** — `frappe.utils.global_search.search` → palette → existing Routes. (M)
+7. **Tree views** — Chart of Accounts (plus Cost Center, Item Group, Warehouse) via
+   `DisclosureGroup` outlines; `treeview.get_children` is already whitelisted. (M)
+8. **Attachments** — authenticated image/PDF loading (token header ≠ `AsyncImage`),
+   attachment list from the `File` DocType, Quick Look preview. High value for AP review
+   of supplier-invoice attachments. (M)
+9. **Form periphery** — docstatus badge (draft/submitted/cancelled, `amended_from` link);
+   Connections tab counts → filtered-list routes; read-only comments/activity timeline
+   (`_comment_count`, Comment/Version DocTypes); assignment/tag chips. (M–L)
+
+### Phase 5 — dashboards, polish, distribution
+
+10. **Dashboards** — Number Cards and Dashboard Charts via their whitelisted read methods
+    + Swift Charts; workspace cards slot in from Phase 4. (L)
+11. **PDF export** — `ImageRenderer` of the report grid → share/print; native re-render,
+    not Desk print formats. (M)
+12. **Formatting fidelity** — honor field `precision`, System Settings number/date formats,
+    accounting-style negatives. (S)
+13. **Filter completeness** — `between`/`timespan` operators, `or_filters`, read-only
+    presets from the server's `List Filter` DocType. (S–M)
+14. **Prepared reports** — poll/fetch results for reports the server queues in the
+    background (read-only endpoints). Needed for very large GL ranges. (M)
+15. **Platform** — macOS menu commands + keyboard shortcuts (⌘1–5 statements, ⌘K, ⌘F),
+    multiple server profiles, connectivity indicator, Developer ID notarized Mac build and
+    TestFlight for iOS (certs already present), CI running `swift test` + both builds. (M)
+
+### Engineering debt
+
+- Meta cache is session-long: manual refresh (⌘R) should also bust it.
+- Re-test the two beta-SDK layout landmines (report-grid `.refreshable`; Text beside menu
+  Pickers) when release SDKs ship; restore the iOS "Updated" stamp if fixed.
+- UI smoke tests driving the TULA_ROUTE / TULA_AUTOOPEN_FILTER hooks.
+
+### Explicitly deferred
+
+Anything that writes (see §6 write-readiness notes); offline writes permanently; Desk print
+formats and custom client scripts; WebKit-dependent rendering.
