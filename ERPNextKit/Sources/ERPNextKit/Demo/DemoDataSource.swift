@@ -49,14 +49,45 @@ public struct DemoDataSource: DataSource {
         _ doctype: String, fields: [String], filters: [ListFilter],
         orderBy: String?, limitStart: Int, limitPageLength: Int
     ) async throws -> [Document] {
+        let docs: [Document]
         switch doctype {
         case "Account":
-            return try Document.list(from: Data(DemoFixtures.accountList.utf8))
+            docs = try Document.list(from: Data(DemoFixtures.accountList.utf8))
         case "Sales Invoice":
-            return try Document.list(from: Data(DemoFixtures.salesInvoiceList.utf8))
+            docs = try Document.list(from: Data(DemoFixtures.salesInvoiceList.utf8))
         default:
             return []
         }
+        return Self.apply(filters, to: docs)
+    }
+
+    /// Minimal server-side filter semantics (`=` and `like`) so demo mode
+    /// behaves like a live site for search and quick filters.
+    static func apply(_ filters: [ListFilter], to docs: [Document]) -> [Document] {
+        guard !filters.isEmpty else { return docs }
+        return docs.filter { doc in
+            filters.allSatisfy { filter in
+                let actual = doc.raw[filter.fieldname]?.stringValue ?? ""
+                switch filter.op {
+                case "=":
+                    return actual == (filter.value.stringValue ?? "")
+                case "like":
+                    let needle = (filter.value.stringValue ?? "")
+                        .replacingOccurrences(of: "%", with: "").lowercased()
+                    return needle.isEmpty || actual.lowercased().contains(needle)
+                default:
+                    return true
+                }
+            }
+        }
+    }
+
+    public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
+        guard doctype == "Customer" else { return [] }
+        let customers = ["Grant Plastics Ltd.", "Northwind Research", "Zany Brainy"]
+        return customers
+            .filter { query.isEmpty || $0.lowercased().contains(query.lowercased()) }
+            .map { LinkOption(value: $0) }
     }
 
     public func document(_ doctype: String, name: String) async throws -> Document {

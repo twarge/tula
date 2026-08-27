@@ -11,6 +11,8 @@ struct ListScreen: View {
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
     @State private var searchText = ""
+    /// Active quick-filter values, fieldname → equality value.
+    @State private var quickFilters: [String: String] = [:]
 
     struct Loaded {
         var meta: DocTypeMeta
@@ -30,14 +32,13 @@ struct ListScreen: View {
                     Text(message)
                 }
             case .loaded(let loaded):
-                if loaded.rows.isEmpty {
-                    if searchText.isEmpty {
-                        ContentUnavailableView("No \(doctype) records", systemImage: "tray")
+                VStack(spacing: 0) {
+                    QuickFiltersBar(meta: loaded.meta, values: $quickFilters)
+                    if loaded.rows.isEmpty {
+                        emptyState
                     } else {
-                        ContentUnavailableView.search(text: searchText)
+                        listBody(loaded)
                     }
-                } else {
-                    listBody(loaded)
                 }
             }
         }
@@ -47,7 +48,9 @@ struct ListScreen: View {
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
         .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
-        .task(id: "\(model.sourceGeneration)-\(doctype)-\(refreshToken)-\(searchText)") {
+        .task(
+            id: "\(model.sourceGeneration)-\(doctype)-\(refreshToken)-\(searchText)-\(filtersKey)"
+        ) {
             // Debounce keystrokes; the task is cancelled and restarted on
             // every change, so only a pause reaches the server.
             if !searchText.isEmpty {
@@ -55,6 +58,30 @@ struct ListScreen: View {
                 if Task.isCancelled { return }
             }
             await load()
+        }
+    }
+
+    /// Stable task-id component for the quick-filter dictionary.
+    private var filtersKey: String {
+        quickFilters.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "&")
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if !searchText.isEmpty {
+            ContentUnavailableView.search(text: searchText)
+        } else if !quickFilters.isEmpty {
+            ContentUnavailableView {
+                Label("No Matches", systemImage: "line.3.horizontal.decrease.circle")
+            } description: {
+                Text("No \(doctype) records match the current filters.")
+            } actions: {
+                Button("Clear Filters") { quickFilters = [:] }
+            }
+        } else {
+            ContentUnavailableView("No \(doctype) records", systemImage: "tray")
         }
     }
 
@@ -140,6 +167,9 @@ struct ListScreen: View {
                 // Desk's list search filters on the title field (or name).
                 filters.append(
                     ListFilter(meta.titleField ?? "name", "like", .string("%\(trimmed)%")))
+            }
+            for (fieldname, value) in quickFilters {
+                filters.append(ListFilter(fieldname, "=", .string(value)))
             }
             let rows = try await model.dataSource.list(
                 doctype, fields: meta.listFieldnames, filters: filters,

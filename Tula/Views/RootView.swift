@@ -3,7 +3,17 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: Route? = .report(StandardReports.profitAndLoss)
+    @State private var selection: Route? = RootView.initialSelection
+
+    /// Debug/automation hook: `TULA_ROUTE=list:<DocType>` (via
+    /// `SIMCTL_CHILD_TULA_ROUTE` on the simulator) opens a screen directly.
+    private static var initialSelection: Route? {
+        if let raw = ProcessInfo.processInfo.environment["TULA_ROUTE"],
+            raw.hasPrefix("list:") {
+            return .doctypeList(String(raw.dropFirst("list:".count)))
+        }
+        return .report(StandardReports.profitAndLoss)
+    }
     @State private var path = NavigationPath()
     @State private var showingSettings = false
 
@@ -40,13 +50,15 @@ struct RouteView: View {
     let route: Route
 
     var body: some View {
+        // .id keeps per-screen @State (search text, quick filters, tab) from
+        // leaking across sidebar selections, which reuse the same view slot.
         switch route {
         case .report(let descriptor):
-            ReportScreen(descriptor: descriptor)
+            ReportScreen(descriptor: descriptor).id(descriptor.name)
         case .doctypeList(let doctype):
-            ListScreen(doctype: doctype)
+            ListScreen(doctype: doctype).id(doctype)
         case .document(let doctype, let name):
-            DocumentScreen(doctype: doctype, name: name)
+            DocumentScreen(doctype: doctype, name: name).id("\(doctype)/\(name)")
         }
     }
 }

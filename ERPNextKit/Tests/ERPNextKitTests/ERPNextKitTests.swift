@@ -181,6 +181,57 @@ final class ChangeProbeTests: XCTestCase {
     }
 }
 
+final class QuickFilterTests: XCTestCase {
+    func testStandardFilterFieldsFromMeta() throws {
+        let invoiceMeta = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))[0]
+        XCTAssertEqual(
+            invoiceMeta.standardFilterFields.map(\.fieldname), ["customer", "status"])
+
+        let accountMeta = try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8))[0]
+        XCTAssertEqual(accountMeta.standardFilterFields.map(\.fieldname), ["root_type"])
+    }
+
+    func testDemoAppliesEqualityAndLikeFilters() async throws {
+        let demo = DemoDataSource()
+        let paid = try await demo.list(
+            "Sales Invoice", fields: [], filters: [ListFilter("status", "=", .string("Paid"))],
+            orderBy: nil, limitStart: 0, limitPageLength: 50)
+        XCTAssertEqual(paid.count, 2)
+
+        let northwindPaid = try await demo.list(
+            "Sales Invoice", fields: [],
+            filters: [
+                ListFilter("status", "=", .string("Paid")),
+                ListFilter("customer", "=", .string("Northwind Research")),
+            ],
+            orderBy: nil, limitStart: 0, limitPageLength: 50)
+        XCTAssertEqual(northwindPaid.map(\.name), ["ACC-SINV-2025-00042"])
+
+        let grant = try await demo.list(
+            "Sales Invoice", fields: [],
+            filters: [ListFilter("customer_name", "like", .string("%grant%"))],
+            orderBy: nil, limitStart: 0, limitPageLength: 50)
+        XCTAssertEqual(grant.count, 1)
+    }
+
+    func testDemoSearchLink() async throws {
+        let demo = DemoDataSource()
+        let all = try await demo.searchLink(doctype: "Customer", query: "")
+        XCTAssertEqual(all.count, 3)
+        let north = try await demo.searchLink(doctype: "Customer", query: "north")
+        XCTAssertEqual(north.map(\.value), ["Northwind Research"])
+    }
+
+    /// Regression: the app always calls through `any DataSource`. When
+    /// searchLink was extension-only, this dispatched to the empty default
+    /// and autocomplete silently returned nothing everywhere.
+    func testSearchLinkDispatchesThroughExistential() async throws {
+        let source: any DataSource = DemoDataSource()
+        let results = try await source.searchLink(doctype: "Customer", query: "")
+        XCTAssertEqual(results.count, 3)
+    }
+}
+
 final class DemoDataSourceTests: XCTestCase {
     func testDemoServesEveryFixtureThroughTheLivePipeline() async throws {
         let demo = DemoDataSource()

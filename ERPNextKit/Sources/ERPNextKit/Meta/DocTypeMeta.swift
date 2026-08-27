@@ -35,6 +35,8 @@ public struct DocField: Sendable, Hashable, Identifiable {
     public var hidden: Bool { raw["hidden"]?.boolValue ?? false }
     public var bold: Bool { raw["bold"]?.boolValue ?? false }
     public var inListView: Bool { raw["in_list_view"]?.boolValue ?? false }
+    /// Desk shows these fields as its sidebar "Filter By" quick filters.
+    public var inStandardFilter: Bool { raw["in_standard_filter"]?.boolValue ?? false }
     public var collapsible: Bool { raw["collapsible"]?.boolValue ?? false }
     public var precision: Int? { raw["precision"]?.intValue }
 
@@ -69,6 +71,12 @@ public struct DocTypeMeta: Sendable, Hashable {
     /// Columns for the generic list view, in metadata order.
     public var listFields: [DocField] {
         fields.filter { $0.inListView && !$0.hidden && $0.fieldtype.isPresentable }
+    }
+
+    /// Quick-filter candidates, in metadata order — the same fields Desk
+    /// offers in its list sidebar (ARCHITECTURE.md §10).
+    public var standardFilterFields: [DocField] {
+        fields.filter { $0.inStandardFilter && !$0.hidden && $0.fieldtype.isPresentable }
     }
 
     /// Fields whose values should be requested from the list endpoint.

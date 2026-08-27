@@ -1,5 +1,18 @@
 import Foundation
 
+/// One result of a link-field autocomplete (`frappe.desk.search.search_link`).
+public struct LinkOption: Sendable, Hashable, Identifiable {
+    public var value: String
+    public var description: String?
+
+    public init(value: String, description: String? = nil) {
+        self.value = value
+        self.description = description
+    }
+
+    public var id: String { value }
+}
+
 /// Everything the UI needs from a server, as read operations only.
 /// Two implementations: `LiveDataSource` (a real ERPNext site over
 /// `ReadOnlyClient`) and `DemoDataSource` (bundled fixtures, no network).
@@ -13,6 +26,11 @@ public protocol DataSource: Sendable {
 
     /// The DocType's metadata plus the metadata of all its child tables.
     func metaBundle(for doctype: String) async throws -> [DocTypeMeta]
+    /// Link-field autocomplete. Declared as a requirement (not just an
+    /// extension convenience) so calls through `any DataSource` dispatch to
+    /// the concrete implementation — an extension-only method silently
+    /// resolves to the default and returns nothing.
+    func searchLink(doctype: String, query: String) async throws -> [LinkOption]
     func list(
         _ doctype: String, fields: [String], filters: [ListFilter],
         orderBy: String?, limitStart: Int, limitPageLength: Int
@@ -21,6 +39,13 @@ public protocol DataSource: Sendable {
 }
 
 extension DataSource {
+    /// Link-field autocomplete: candidate documents of `doctype` matching
+    /// `query` (empty query returns the server's top suggestions). Default is
+    /// empty so conformances without a search backend still compile.
+    public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
+        []
+    }
+
     /// Cheap change probe: the `modified` timestamp of the most recently
     /// changed row of a DocType, via a one-row GET. Every financial statement
     /// derives from GL Entry postings, so polling this for "GL Entry" is a
@@ -111,5 +136,47 @@ public struct LiveDataSource: DataSource {
     public func document(_ doctype: String, name: String) async throws -> Document {
         let data = try await client.data(for: .resource(doctype: doctype, name: name))
         return try Document.single(from: data)
+    }
+
+    public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
+        // Primary: Desk's ranked autocomplete. Servers differ in whether this
+        // succeeds for API users (permission model, version quirks), so an
+        // empty or failed result falls back below rather than ending here.
+        if let ranked = try? await searchLinkMethod(doctype: doctype, query: query),
+            !ranked.isEmpty {
+            return ranked
+        }
+        // Fallback: the plain list endpoint — the same call and permissions
+        // every list screen uses, so wherever lists work, suggestions work.
+        // Empty query → the 20 most recently modified documents.
+        let filters: [ListFilter] =
+            query.isEmpty ? [] : [ListFilter("name", "like", .string("%\(query)%"))]
+        let docs = try await list(
+            doctype, fields: ["name"], filters: filters,
+            orderBy: "modified desc", limitStart: 0, limitPageLength: 20)
+        return docs.map { LinkOption(value: $0.name) }
+    }
+
+    private func searchLinkMethod(doctype: String, query: String) async throws -> [LinkOption] {
+        let data = try await client.data(
+            for: .method(
+                .searchLink,
+                parameters: ["doctype": doctype, "txt": query, "page_length": "20"]))
+        guard let root = try FrappeValue.decode(from: data).objectValue else { return [] }
+        let results =
+            root["results"]?.arrayValue
+            ?? root["message"]?.arrayValue
+            ?? root["message"]?.objectValue?["results"]?.arrayValue
+            ?? []
+        return results.compactMap { entry in
+            if let dict = entry.objectValue, let value = dict["value"]?.nonEmptyString {
+                return LinkOption(
+                    value: value, description: dict["description"]?.nonEmptyString)
+            }
+            if let value = entry.nonEmptyString {
+                return LinkOption(value: value)
+            }
+            return nil
+        }
     }
 }

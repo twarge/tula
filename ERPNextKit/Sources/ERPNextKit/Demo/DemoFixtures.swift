@@ -117,7 +117,7 @@ enum DemoFixtures {
                 {"fieldname": "is_group", "label": "Is Group", "fieldtype": "Check"},
                 {"fieldname": "company", "label": "Company", "fieldtype": "Link", "options": "Company", "reqd": 1},
                 {"fieldname": "cb0", "fieldtype": "Column Break"},
-                {"fieldname": "root_type", "label": "Root Type", "fieldtype": "Select", "options": "\nAsset\nLiability\nIncome\nExpense\nEquity", "in_list_view": 1},
+                {"fieldname": "root_type", "label": "Root Type", "fieldtype": "Select", "options": "\nAsset\nLiability\nIncome\nExpense\nEquity", "in_list_view": 1, "in_standard_filter": 1},
                 {"fieldname": "report_type", "label": "Report Type", "fieldtype": "Select", "options": "\nBalance Sheet\nProfit and Loss"},
                 {"fieldname": "account_currency", "label": "Currency", "fieldtype": "Link", "options": "Currency"},
                 {"fieldname": "sb1", "label": "Account Settings", "fieldtype": "Section Break"},
@@ -180,7 +180,7 @@ enum DemoFixtures {
               "title_field": "customer_name",
               "fields": [
                 {"fieldname": "details_tab", "label": "Details", "fieldtype": "Tab Break"},
-                {"fieldname": "customer", "label": "Customer", "fieldtype": "Link", "options": "Customer", "reqd": 1},
+                {"fieldname": "customer", "label": "Customer", "fieldtype": "Link", "options": "Customer", "reqd": 1, "in_standard_filter": 1},
                 {"fieldname": "customer_name", "label": "Customer Name", "fieldtype": "Data", "in_list_view": 1, "bold": 1},
                 {"fieldname": "cb_dates", "fieldtype": "Column Break"},
                 {"fieldname": "posting_date", "label": "Date", "fieldtype": "Date", "in_list_view": 1},
@@ -196,7 +196,7 @@ enum DemoFixtures {
                 {"fieldname": "grand_total", "label": "Grand Total", "fieldtype": "Currency", "options": "currency", "bold": 1, "in_list_view": 1},
                 {"fieldname": "outstanding_amount", "label": "Outstanding Amount", "fieldtype": "Currency", "options": "currency"},
                 {"fieldname": "more_info_tab", "label": "More Info", "fieldtype": "Tab Break"},
-                {"fieldname": "status", "label": "Status", "fieldtype": "Select", "in_list_view": 1,
+                {"fieldname": "status", "label": "Status", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1,
                  "options": "\nDraft\nReturn\nCredit Note Issued\nSubmitted\nPaid\nUnpaid\nOverdue\nCancelled"},
                 {"fieldname": "cb_info", "fieldtype": "Column Break"},
                 {"fieldname": "remarks", "label": "Remarks", "fieldtype": "Small Text"}
@@ -221,10 +221,10 @@ enum DemoFixtures {
     static let salesInvoiceList = #"""
         {
           "data": [
-            {"name": "ACC-SINV-2025-00042", "customer_name": "Northwind Research", "posting_date": "2025-07-18", "grand_total": 13150.0, "status": "Paid"},
-            {"name": "ACC-SINV-2025-00041", "customer_name": "Grant Plastics Ltd.", "posting_date": "2025-07-11", "grand_total": 5720.0, "status": "Paid"},
-            {"name": "ACC-SINV-2025-00040", "customer_name": "Zany Brainy", "posting_date": "2025-07-02", "grand_total": 21480.0, "status": "Unpaid"},
-            {"name": "ACC-SINV-2025-00039", "customer_name": "Northwind Research", "posting_date": "2025-06-24", "grand_total": 8900.0, "status": "Overdue"}
+            {"name": "ACC-SINV-2025-00042", "customer": "Northwind Research", "customer_name": "Northwind Research", "posting_date": "2025-07-18", "grand_total": 13150.0, "status": "Paid"},
+            {"name": "ACC-SINV-2025-00041", "customer": "Grant Plastics Ltd.", "customer_name": "Grant Plastics Ltd.", "posting_date": "2025-07-11", "grand_total": 5720.0, "status": "Paid"},
+            {"name": "ACC-SINV-2025-00040", "customer": "Zany Brainy", "customer_name": "Zany Brainy", "posting_date": "2025-07-02", "grand_total": 21480.0, "status": "Unpaid"},
+            {"name": "ACC-SINV-2025-00039", "customer": "Northwind Research", "customer_name": "Northwind Research", "posting_date": "2025-06-24", "grand_total": 8900.0, "status": "Overdue"}
           ]
         }
         """#
