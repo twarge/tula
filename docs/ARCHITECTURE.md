@@ -76,7 +76,7 @@ degrades gracefully instead of breaking on server customization.
 | `Dynamic Link` | Same, doctype resolved from the sibling field named in `options` |
 | `Table`, `Table MultiSelect` | Nested child-table section rendered by the same list machinery, using the child DocType's meta |
 | `Text`, `Long Text`, `Code`, `JSON`, `Markdown Editor` | Scrollable `Text` (monospaced for code/JSON) |
-| `Text Editor`, `HTML Editor`, `HTML` | Lightweight HTML→`AttributedString` conversion (own parser — **not** `NSAttributedString(html:)`, which spins up WebKit); v1 strips to styled text |
+| `Text Editor`, `HTML Editor`, `HTML` | Own lightweight parsing — **not** `NSAttributedString(html:)`, which spins up WebKit. Fields carrying a server-rendered `<table>` (tax breakup et al) are parsed (`HTMLTable`) and rendered as a native grid; other content strips to text |
 | `Attach`, `Attach Image`, `Image` | Filename + `AsyncImage` for images (GET of `/files/...`) |
 | `Color` | Color swatch + hex |
 | `Rating` | Star row |
@@ -108,8 +108,11 @@ Rendering rules:
   compact width (iPhone). One layout parser, adaptive presentation.
 - **Fields** → `LabeledContent(label) { FieldValueView }`.
 - Fields with `hidden == 1`, permission-restricted (`permlevel`), or empty values follow Desk's
-  visibility conventions. `depends_on` expressions (client-side JS) are approximated for
-  the common `eval:doc.field` forms and otherwise ignored (we show more, never less).
+  visibility conventions. `depends_on` expressions (on fields, sections, and tabs) are
+  evaluated exactly as Desk does — as JavaScript against the document — via **JavaScriptCore**
+  (`DependsOnEvaluator`): expression evaluation only, no web content, so the no-WebKit (UI)
+  constraint stands. Unevaluable expressions fail open (we show more, never less). ERPNext's
+  company-currency convention is mirrored too: `base_*` twins hide when conversion rate is 1.
 
 This is the piece that makes "convert the UI component-by-component" real: **any** DocType —
 including ones with custom fields added by the customer — renders correctly because layout is
@@ -120,7 +123,7 @@ data, not code.
 | Desk view | Route (mirrors Desk URLs) | Native container |
 |---|---|---|
 | Workspace (sidebar + shortcuts) | `/app/{workspace}` | `NavigationSplitView` sidebar; workspace links/shortcuts → rows |
-| List view | `/app/{doctype-list}` | macOS: `Table`; iOS: `List`. Columns = meta fields with `in_list_view`, title from `title_field`, status badge from `indicator` conventions |
+| List view | `/app/{doctype-list}` | macOS: `Table`; iOS: `List`. Columns = Desk's saved **List View Settings** for the DocType when configured (read via its settings document), else meta fields with `in_list_view`; title from `title_field`, status badge from `indicator` conventions |
 | Form view | `/app/{doctype}/{name}` | Generic `DocumentScreen` from `LayoutTree` (§4) |
 | Tree view (Chart of Accounts) | `/app/account/view/tree` | `List` + `DisclosureGroup`, children lazy-loaded via `is_group`/`parent_account` filters |
 | **Query/Script report** | `/app/query-report/{name}` | Generic `ReportScreen` (§7) — this is the P&L path |
@@ -142,6 +145,16 @@ voucher → party) works uniformly with no per-feature code.
    not a toggle; `Button` fields are never rendered).
 3. **Server (recommended, defense in depth):** connect with an API key for a dedicated
    ERPNext user holding only `read`/`report` permissions, so even a bug cannot write.
+
+**If writes are ever enabled** (deliberately out of scope today): keep this structure — do
+not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
+enumerated mutation whitelist (save/submit/cancel/amend), a distinct capability protocol
+beside the read-only `DataSource`, and per-connection opt-in (ideally a separate
+write-scoped API key). Writes stay server-authoritative — commands up, refetch truth down;
+the cached `modified` timestamp doubles as Frappe's optimistic-concurrency token; editors
+revalidate before opening and auto-refresh pauses during edits. Offline writes are ruled
+out permanently: ERPNext's server-side compute (taxes, pricing, GL) makes client-side
+merge infeasible, so offline remains read-only.
 
 ## 7. The report engine (P&L first)
 
@@ -268,7 +281,28 @@ GET-able for later.
 **Suggested order:** quick filters first (small, most of the daily value), then the generic
 editor + Link autocomplete, then saved-filter presets / `or_filters` / tree operators.
 
-## 11. Phasing
+## 11. Pagination & caching (design)
+
+**Pagination.** Lists load pages of 50 via `limit_start`; a cell `.onAppear` in the trailing
+rows triggers the next page (SwiftUI `Table` rows materialize lazily on macOS, `List` on iOS).
+Guards: one in-flight load, `hasMore` = full page returned, reset on sort/filter/search
+change. Auto-refresh re-requests the full currently-loaded count from offset 0 so the dataset
+never collapses under the scroll position. Total via `frappe.client.get_count` → "50 of 1,234".
+
+**Caching tiers** (read-only client → no write-back to reconcile; `modified` is a universal
+invalidation signal; everything keyed by server+user and wiped on `sourceGeneration` bump):
+
+1. **Meta — in-memory `MetaStore` actor, session-long.** DocType bundles are refetched per
+   screen today; caching them removes most traffic. Disk persistence optional (cold start).
+2. **Lists/documents — memory, stale-while-revalidate.** Keep the last `Loaded` per screen
+   key; show instantly on return, refresh silently (machinery already exists). No disk.
+3. **Report snapshots — disk.** Last result per (report, filters) with timestamp → instant
+   open with the "Updated HH:MM" stamp, silent re-run; GL Entry probe signals staleness.
+   This is the offline-viewing tier.
+4. **Never cached:** autocomplete, counts, anything cross-identity. Credentials stay in the
+   Keychain only.
+
+## 12. Phasing
 
 - **Phase 1 (this repo, now):** kit + read-only transport; report engine; generic
   report/list/form renderers; P&L, Balance Sheet, Cash Flow, Trial Balance, GL wired in the

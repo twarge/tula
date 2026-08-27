@@ -32,7 +32,7 @@ public struct DemoDataSource: DataSource {
         }
     }
 
-    public func metaBundle(for doctype: String) async throws -> [DocTypeMeta] {
+    public func metaBundle(for doctype: String) async throws -> MetaBundle {
         switch doctype {
         case "Account":
             return try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8))
@@ -58,7 +58,33 @@ public struct DemoDataSource: DataSource {
         default:
             return []
         }
-        return Self.apply(filters, to: docs)
+        return Self.sort(Self.apply(filters, to: docs), by: orderBy)
+    }
+
+    public func count(_ doctype: String, filters: [ListFilter]) async throws -> Int? {
+        let docs = try await list(
+            doctype, fields: [], filters: filters, orderBy: nil, limitStart: 0,
+            limitPageLength: Int.max)
+        return docs.isEmpty ? nil : docs.count
+    }
+
+    /// Minimal `order_by` semantics ("field asc|desc") for demo parity.
+    static func sort(_ docs: [Document], by orderBy: String?) -> [Document] {
+        guard let orderBy else { return docs }
+        let parts = orderBy.split(separator: " ")
+        guard let field = parts.first.map(String.init) else { return docs }
+        let descending = parts.count > 1 && parts[1].lowercased() == "desc"
+        return docs.sorted { a, b in
+            let left = a.raw[field]
+            let right = b.raw[field]
+            let ascending: Bool
+            if let l = left?.doubleValue, let r = right?.doubleValue {
+                ascending = l < r
+            } else {
+                ascending = (left?.stringValue ?? "") < (right?.stringValue ?? "")
+            }
+            return descending ? !ascending : ascending
+        }
     }
 
     /// Minimal server-side filter semantics (`=` and `like`) so demo mode

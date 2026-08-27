@@ -56,6 +56,17 @@ struct FieldValueView: View {
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
 
+        case .text, .smallText, .longText, .textEditor, .htmlEditor, .html:
+            // Some server fields carry pre-rendered HTML (tax breakup et al).
+            // A contained <table> renders as a native grid; anything else
+            // falls back to stripped text.
+            if let table = HTMLTable.firstTable(in: value?.stringValue ?? "") {
+                HTMLTableView(table: table)
+            } else {
+                Text(formatted)
+                    .textSelection(.enabled)
+            }
+
         default:
             Text(formatted)
                 .textSelection(.enabled)

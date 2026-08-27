@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Unknown types (server customizations, future Frappe versions) decode to
 /// `.other` and render as plain text — the app degrades instead of breaking.
-public enum FieldType: Sendable, Hashable {
+public enum FieldType: Sendable, Hashable, Codable {
     case data
     case int
     case float
@@ -146,6 +146,16 @@ public enum FieldType: Sendable, Hashable {
         case .button: return "Button"
         case .other(let raw): return raw
         }
+    }
+
+    /// Persisted by raw value (report snapshots on disk).
+    public init(from decoder: Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     /// Layout-structuring pseudo-fields consumed by the layout parser.

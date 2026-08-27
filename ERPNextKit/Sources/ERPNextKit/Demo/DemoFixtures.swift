@@ -185,15 +185,23 @@ enum DemoFixtures {
                 {"fieldname": "cb_dates", "fieldtype": "Column Break"},
                 {"fieldname": "posting_date", "label": "Date", "fieldtype": "Date", "in_list_view": 1},
                 {"fieldname": "due_date", "label": "Payment Due Date", "fieldtype": "Date"},
+                {"fieldname": "po_no", "label": "Customer's Purchase Order", "fieldtype": "Data"},
                 {"fieldname": "cb_company", "fieldtype": "Column Break"},
                 {"fieldname": "company", "label": "Company", "fieldtype": "Link", "options": "Company"},
                 {"fieldname": "currency", "label": "Currency", "fieldtype": "Link", "options": "Currency"},
                 {"fieldname": "items_section", "label": "Items", "fieldtype": "Section Break"},
+                {"fieldname": "scan_barcode", "label": "Scan Barcode", "fieldtype": "Data", "options": "Barcode"},
                 {"fieldname": "items", "label": "Items", "fieldtype": "Table", "options": "Sales Invoice Item", "reqd": 1},
+                {"fieldname": "tax_breakup_section", "label": "Tax Breakup", "fieldtype": "Section Break", "collapsible": 1},
+                {"fieldname": "other_charges_calculation", "label": "Taxes and Charges Calculation", "fieldtype": "Long Text", "read_only": 1},
                 {"fieldname": "totals_section", "label": "Totals", "fieldtype": "Section Break"},
                 {"fieldname": "total", "label": "Total", "fieldtype": "Currency", "options": "currency"},
+                {"fieldname": "is_return", "label": "Is Return", "fieldtype": "Check"},
+                {"fieldname": "return_against", "label": "Return Against Sales Invoice", "fieldtype": "Link", "options": "Sales Invoice", "depends_on": "eval:doc.is_return"},
                 {"fieldname": "cb_totals", "fieldtype": "Column Break"},
                 {"fieldname": "grand_total", "label": "Grand Total", "fieldtype": "Currency", "options": "currency", "bold": 1, "in_list_view": 1},
+                {"fieldname": "base_grand_total", "label": "Grand Total (Company Currency)", "fieldtype": "Currency", "options": "currency"},
+                {"fieldname": "totals_continued", "fieldtype": "Section Break"},
                 {"fieldname": "outstanding_amount", "label": "Outstanding Amount", "fieldtype": "Currency", "options": "currency"},
                 {"fieldname": "more_info_tab", "label": "More Info", "fieldtype": "Tab Break"},
                 {"fieldname": "status", "label": "Status", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1,
@@ -214,14 +222,15 @@ enum DemoFixtures {
                 {"fieldname": "amount", "label": "Amount", "fieldtype": "Currency", "options": "currency", "in_list_view": 1}
               ]
             }
-          ]
+          ],
+          "user_settings": "{\"GridView\": {\"Sales Invoice Item\": [{\"fieldname\": \"item_code\", \"columns\": 3}, {\"fieldname\": \"qty\", \"columns\": 2}, {\"fieldname\": \"amount\", \"columns\": 2}]}, \"List\": {\"sort_by\": \"posting_date\", \"sort_order\": \"desc\"}}"
         }
         """#
 
     static let salesInvoiceList = #"""
         {
           "data": [
-            {"name": "ACC-SINV-2025-00042", "customer": "Northwind Research", "customer_name": "Northwind Research", "posting_date": "2025-07-18", "grand_total": 13150.0, "status": "Paid"},
+            {"name": "ACC-SINV-2025-00042", "customer": "Northwind Research", "customer_name": "Northwind Research", "posting_date": "2025-07-18", "grand_total": 13807.5, "status": "Paid"},
             {"name": "ACC-SINV-2025-00041", "customer": "Grant Plastics Ltd.", "customer_name": "Grant Plastics Ltd.", "posting_date": "2025-07-11", "grand_total": 5720.0, "status": "Paid"},
             {"name": "ACC-SINV-2025-00040", "customer": "Zany Brainy", "customer_name": "Zany Brainy", "posting_date": "2025-07-02", "grand_total": 21480.0, "status": "Unpaid"},
             {"name": "ACC-SINV-2025-00039", "customer": "Northwind Research", "customer_name": "Northwind Research", "posting_date": "2025-06-24", "grand_total": 8900.0, "status": "Overdue"}
@@ -240,13 +249,17 @@ enum DemoFixtures {
               "due_date": "2025-08-17",
               "company": "Wind Power LLC",
               "currency": "USD",
+              "conversion_rate": 1.0,
+              "is_return": 0,
+              "other_charges_calculation": "<div class=\"tax-break-up\" style=\"overflow-x: auto;\"><table class=\"table table-bordered table-hover\"><thead><tr><th class=\"text-left\">Item</th><th class=\"text-right\">Taxable Amount</th><th class=\"text-right\">Shipping &amp; Handling</th></tr></thead><tbody><tr><td>WT-1000</td><td class=\"text-right\">$ 7,400.00</td><td class=\"text-right\">(5.0%)<br>$ 370.00</td></tr><tr><td>WT-2400</td><td class=\"text-right\">$ 4,800.00</td><td class=\"text-right\">(5.0%)<br>$ 240.00</td></tr><tr><td>MNT-KIT</td><td class=\"text-right\">$ 950.00</td><td class=\"text-right\">(5.0%)<br>$ 47.50</td></tr></tbody></table></div>",
               "items": [
                 {"name": "row1", "item_code": "WT-1000", "item_name": "Wind Turbine 1kW", "qty": 4.0, "rate": 1850.0, "amount": 7400.0},
                 {"name": "row2", "item_code": "WT-2400", "item_name": "Wind Turbine 2.4kW", "qty": 2.0, "rate": 2400.0, "amount": 4800.0},
                 {"name": "row3", "item_code": "MNT-KIT", "item_name": "Mounting Kit", "qty": 10.0, "rate": 95.0, "amount": 950.0}
               ],
               "total": 13150.0,
-              "grand_total": 13150.0,
+              "grand_total": 13807.5,
+              "base_grand_total": 13807.5,
               "outstanding_amount": 0.0,
               "status": "Paid",
               "remarks": "Q3 restock order. Delivered in two shipments."

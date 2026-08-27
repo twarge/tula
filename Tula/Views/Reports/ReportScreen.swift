@@ -27,6 +27,7 @@ struct ReportScreen: View {
         }
         .navigationTitle(descriptor.title)
         .toolbar {
+            OpenInDeskToolbar(route: .report(descriptor))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
         .autoRefresh(signalDoctype: descriptor.changeSignalDoctype) { refreshToken += 1 }
@@ -37,8 +38,28 @@ struct ReportScreen: View {
                 report: descriptor.name,
                 token: refreshToken)
         ) {
+            // Restore from the session cache, else the disk snapshot — the
+            // offline tier — then refresh silently.
+            if case .loading = state {
+                if let cached: (value: ReportResult, savedAt: Date) = model.cache.screen(
+                    cacheKey) {
+                    state = .loaded(cached.value)
+                    lastUpdated = cached.savedAt
+                } else if !model.isDemo,
+                    let snapshot = SessionCache.reportSnapshot(forKey: cacheKey) {
+                    state = .loaded(snapshot.result)
+                    lastUpdated = snapshot.savedAt
+                }
+            }
             await load()
         }
+    }
+
+    private var cacheKey: String {
+        let filters = model.filterState
+        return "report|\(model.sourceGeneration)|\(descriptor.name)|"
+            + "\(filters.company?.name ?? "-")|\(filters.fiscalYear?.name ?? "-")|"
+            + "\(filters.periodicity.rawValue)"
     }
 
     @ViewBuilder
@@ -81,8 +102,16 @@ struct ReportScreen: View {
             let result = try await model.dataSource.runReport(descriptor.name, filters: filters)
             state = .loaded(result)
             lastUpdated = Date()
+            model.cache.setScreen(cacheKey, result)
+            if !model.isDemo {
+                SessionCache.saveReportSnapshot(result, forKey: cacheKey)
+            }
         } catch {
-            state = .failed(error.localizedDescription)
+            // Keep the cached/snapshot content on refresh failure (offline);
+            // only surface errors when there's nothing to show.
+            if case .loaded = state {} else {
+                state = .failed(error.localizedDescription)
+            }
         }
     }
 }

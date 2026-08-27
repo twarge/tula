@@ -5,12 +5,21 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: Route? = RootView.initialSelection
 
-    /// Debug/automation hook: `TULA_ROUTE=list:<DocType>` (via
-    /// `SIMCTL_CHILD_TULA_ROUTE` on the simulator) opens a screen directly.
+    /// Debug/automation hook: `TULA_ROUTE=list:<DocType>` or
+    /// `TULA_ROUTE=doc:<DocType>:<Name>` (via `SIMCTL_CHILD_TULA_ROUTE` on
+    /// the simulator) opens a screen directly.
     private static var initialSelection: Route? {
-        if let raw = ProcessInfo.processInfo.environment["TULA_ROUTE"],
-            raw.hasPrefix("list:") {
-            return .doctypeList(String(raw.dropFirst("list:".count)))
+        if let raw = ProcessInfo.processInfo.environment["TULA_ROUTE"] {
+            if raw.hasPrefix("list:") {
+                return .doctypeList(String(raw.dropFirst("list:".count)))
+            }
+            if raw.hasPrefix("doc:") {
+                let parts = raw.dropFirst("doc:".count)
+                    .split(separator: ":", maxSplits: 1).map(String.init)
+                if parts.count == 2 {
+                    return .document(doctype: parts[0], name: parts[1])
+                }
+            }
         }
         return .report(StandardReports.profitAndLoss)
     }

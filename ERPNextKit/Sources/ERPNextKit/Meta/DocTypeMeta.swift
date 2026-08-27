@@ -37,12 +37,22 @@ public struct DocField: Sendable, Hashable, Identifiable {
     public var inListView: Bool { raw["in_list_view"]?.boolValue ?? false }
     /// Desk shows these fields as its sidebar "Filter By" quick filters.
     public var inStandardFilter: Bool { raw["in_standard_filter"]?.boolValue ?? false }
+    /// Visibility rule evaluated against the document (`DependsOnEvaluator`):
+    /// either a bare fieldname (truthiness) or `eval:<js expression>`.
+    public var dependsOn: String? { raw["depends_on"]?.nonEmptyString }
     public var collapsible: Bool { raw["collapsible"]?.boolValue ?? false }
     public var precision: Int? { raw["precision"]?.intValue }
 
     public var selectChoices: [String] {
         guard fieldtype == .select, let options else { return [] }
         return options.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+
+    /// Desk's barcode-scanner input convention (a Data field with
+    /// `options: Barcode`, e.g. `scan_barcode`). Rendered as an inert
+    /// affordance in a read-only client.
+    public var isScanBarcodeField: Bool {
+        fieldtype == .data && (options == "Barcode" || fieldname.contains("scan_barcode"))
     }
 }
 
@@ -63,6 +73,18 @@ public struct DocTypeMeta: Sendable, Hashable {
     public var isTable: Bool { raw["istable"]?.boolValue ?? false }
     public var isSingle: Bool { raw["issingle"]?.boolValue ?? false }
     public var titleField: String? { raw["title_field"]?.nonEmptyString }
+
+    /// Default list sort. `sort_field` occasionally carries a comma list
+    /// ("posting_date, creation"); the first component is the primary sort.
+    public var sortField: String {
+        raw["sort_field"]?.nonEmptyString?
+            .split(separator: ",").first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? "modified"
+    }
+
+    public var sortDescending: Bool {
+        (raw["sort_order"]?.nonEmptyString ?? "DESC").uppercased() != "ASC"
+    }
 
     public func field(named fieldname: String) -> DocField? {
         fields.first { $0.fieldname == fieldname }
@@ -90,11 +112,47 @@ public struct DocTypeMeta: Sendable, Hashable {
     }
 }
 
+/// One column of a Desk child-table grid configuration.
+public struct GridColumn: Sendable, Hashable {
+    public var fieldname: String
+    /// Desk grid width units (out of ~10). Informational — native grids size
+    /// columns to content.
+    public var columns: Int?
+
+    public init(fieldname: String, columns: Int? = nil) {
+        self.fieldname = fieldname
+        self.columns = columns
+    }
+}
+
+/// A DocType's metadata plus its child DocTypes and the requesting user's
+/// Desk view preferences that ride along in the same response.
+public struct MetaBundle: Sendable {
+    public var metas: [DocTypeMeta]
+    /// Child DocType → the user's configured grid columns (Desk's per-user
+    /// "GridView" settings, saved from the grid's gear in the web UI).
+    public var gridColumns: [String: [GridColumn]]
+    /// The user's saved list sort from Desk (user settings "List" section).
+    public var listSortBy: String?
+    public var listSortDescending: Bool?
+
+    public init(
+        metas: [DocTypeMeta], gridColumns: [String: [GridColumn]] = [:],
+        listSortBy: String? = nil, listSortDescending: Bool? = nil
+    ) {
+        self.metas = metas
+        self.gridColumns = gridColumns
+        self.listSortBy = listSortBy
+        self.listSortDescending = listSortDescending
+    }
+}
+
 /// Decodes metadata API responses into DocType bundles.
 public enum MetaDecoder {
     /// `frappe.desk.form.load.getdoctype` returns the requested DocType plus
-    /// the DocTypes of all its child tables in one `docs` array.
-    public static func bundle(from data: Data) throws -> [DocTypeMeta] {
+    /// the DocTypes of all its child tables in one `docs` array, and the
+    /// user's per-DocType view settings as a JSON string in `user_settings`.
+    public static func bundle(from data: Data) throws -> MetaBundle {
         guard let root = try FrappeValue.decode(from: data).objectValue else {
             throw ERPNextError(message: "Malformed metadata response")
         }
@@ -105,7 +163,43 @@ public enum MetaDecoder {
         guard let docs, !docs.isEmpty else {
             throw ERPNextError(message: "Metadata response contained no DocTypes")
         }
-        return docs.compactMap { $0.objectValue.map(DocTypeMeta.init(raw:)) }
+        let metas = docs.compactMap { $0.objectValue.map(DocTypeMeta.init(raw:)) }
             .filter { !$0.name.isEmpty }
+
+        var gridColumns: [String: [GridColumn]] = [:]
+        var listSortBy: String?
+        var listSortDescending: Bool?
+        let settingsRaw =
+            root["user_settings"]?.nonEmptyString
+            ?? root["message"]?.objectValue?["user_settings"]?.nonEmptyString
+        if let settingsRaw,
+            let settings = try? FrappeValue.decode(from: Data(settingsRaw.utf8)).objectValue {
+            if let gridView = settings["GridView"]?.objectValue {
+                for (childDoctype, value) in gridView {
+                    let columns = (value.arrayValue ?? []).compactMap { entry -> GridColumn? in
+                        guard let fieldname = entry.objectValue?["fieldname"]?.nonEmptyString
+                        else { return nil }
+                        return GridColumn(
+                            fieldname: fieldname,
+                            columns: entry.objectValue?["columns"]?.intValue)
+                    }
+                    if !columns.isEmpty { gridColumns[childDoctype] = columns }
+                }
+            }
+            if let list = settings["List"]?.objectValue {
+                // sort_by is occasionally table-qualified (`tabX`.`field`).
+                if let sortBy = list["sort_by"]?.nonEmptyString {
+                    listSortBy = sortBy.split(separator: ".").last
+                        .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "` ")) }
+                }
+                if let order = list["sort_order"]?.nonEmptyString {
+                    listSortDescending = order.uppercased() != "ASC"
+                }
+            }
+        }
+
+        return MetaBundle(
+            metas: metas, gridColumns: gridColumns,
+            listSortBy: listSortBy, listSortDescending: listSortDescending)
     }
 }

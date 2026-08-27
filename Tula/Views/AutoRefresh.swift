@@ -63,12 +63,20 @@ extension View {
 /// stamp lives in the filter bar instead (see `UpdatedStamp`).
 struct RefreshToolbar: ToolbarContent {
     let lastUpdated: Date?
+    /// Optional extra status shown beside the stamp on macOS ("50 of 1,234").
+    var detail: String? = nil
     let action: () -> Void
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             #if os(macOS)
                 HStack(spacing: 10) {
+                    if let detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                     UpdatedStamp(lastUpdated: lastUpdated)
                     refreshButton
                 }

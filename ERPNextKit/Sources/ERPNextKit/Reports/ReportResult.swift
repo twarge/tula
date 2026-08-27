@@ -3,7 +3,7 @@ import Foundation
 /// One column of a query/script report, normalized from either wire form:
 /// modern dict columns (`{"fieldname": ..., "fieldtype": ...}`) or legacy
 /// `"Label:Fieldtype/Options:Width"` strings.
-public struct ReportColumn: Sendable, Hashable, Identifiable {
+public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
     public var fieldname: String
     public var label: String
     public var fieldtype: FieldType
@@ -55,7 +55,7 @@ public struct ReportColumn: Sendable, Hashable, Identifiable {
 
 /// One report row, keyed by column fieldname. Array rows (legacy query
 /// reports) are mapped to keys positionally during decoding.
-public struct ReportRow: Sendable, Hashable, Identifiable {
+public struct ReportRow: Sendable, Hashable, Identifiable, Codable {
     public let id: Int
     public let values: [String: FrappeValue]
 
@@ -77,7 +77,7 @@ public struct ReportRow: Sendable, Hashable, Identifiable {
     }
 }
 
-public struct ReportSummaryItem: Sendable, Hashable, Identifiable {
+public struct ReportSummaryItem: Sendable, Hashable, Identifiable, Codable {
     public var label: String
     public var value: FrappeValue
     public var datatype: FieldType
@@ -100,7 +100,7 @@ public struct ReportSummaryItem: Sendable, Hashable, Identifiable {
 }
 
 /// The normalized output of `frappe.desk.query_report.run`.
-public struct ReportResult: Sendable, Hashable {
+public struct ReportResult: Sendable, Hashable, Codable {
     public var columns: [ReportColumn]
     public var rows: [ReportRow]
     public var summary: [ReportSummaryItem]

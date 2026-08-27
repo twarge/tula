@@ -95,6 +95,20 @@ enum ValueFormatting {
         }
     }
 
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
+    /// Desk-style "11 h ago" from a wire `modified` timestamp.
+    static func relativeModified(_ raw: String?) -> String? {
+        guard let raw, let date = wireDatetime.date(from: String(raw.prefix(19))) else {
+            return nil
+        }
+        return relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
     /// Currency-code resolution, in Desk's order: the column/field `options`
     /// names a sibling field holding the code (usually `currency`); failing
     /// that, `options` may itself be a code; failing that, the company default.

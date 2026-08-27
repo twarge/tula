@@ -59,9 +59,16 @@ final class ReportDecodingTests: XCTestCase {
 final class MetaTests: XCTestCase {
     func testSalesInvoiceBundleAndLayout() throws {
         let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))
-        XCTAssertEqual(bundle.map(\.name), ["Sales Invoice", "Sales Invoice Item"])
+        XCTAssertEqual(bundle.metas.map(\.name), ["Sales Invoice", "Sales Invoice Item"])
 
-        let meta = bundle[0]
+        // Desk per-user grid settings ride along in the same response.
+        XCTAssertEqual(
+            bundle.gridColumns["Sales Invoice Item"]?.map(\.fieldname),
+            ["item_code", "qty", "amount"])
+        XCTAssertEqual(bundle.listSortBy, "posting_date")
+        XCTAssertEqual(bundle.listSortDescending, true)
+
+        let meta = bundle.metas[0]
         XCTAssertEqual(meta.titleField, "customer_name")
         XCTAssertEqual(
             meta.listFields.map(\.fieldname),
@@ -71,24 +78,28 @@ final class MetaTests: XCTestCase {
         XCTAssertEqual(layout.tabs.map(\.label), ["Details", "More Info"])
 
         let details = layout.tabs[0]
-        XCTAssertEqual(details.sections.count, 3)
+        XCTAssertEqual(details.sections.count, 5)
+        // The unlabeled continuation section merges into the Totals card at render.
+        XCTAssertNil(details.sections[4].label)
         // First (implicit) section: three columns split by the two column breaks.
         XCTAssertEqual(details.sections[0].columns.count, 3)
         XCTAssertEqual(details.sections[0].columns[0].map(\.fieldname), ["customer", "customer_name"])
-        // Items section holds the child table, not regular fields.
+        // Items section holds the scan-barcode affordance plus the child table.
         XCTAssertEqual(details.sections[1].label, "Items")
         XCTAssertEqual(details.sections[1].tables.map(\.fieldname), ["items"])
-        XCTAssertTrue(details.sections[1].columns.allSatisfy(\.isEmpty))
+        XCTAssertEqual(
+            details.sections[1].columns.flatMap { $0 }.map(\.fieldname), ["scan_barcode"])
+        XCTAssertTrue(meta.field(named: "scan_barcode")?.isScanBarcodeField ?? false)
 
         // Child meta drives the child-table columns.
         XCTAssertEqual(
-            bundle[1].listFields.map(\.fieldname),
+            bundle.metas[1].listFields.map(\.fieldname),
             ["item_code", "item_name", "qty", "rate", "amount"])
     }
 
     func testHiddenFieldsExcludedFromLayout() throws {
         let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8))
-        let layout = FormLayout.parse(bundle[0])
+        let layout = FormLayout.parse(bundle.metas[0])
         let fieldnames = layout.tabs.flatMap(\.sections).flatMap(\.columns).flatMap { $0 }
             .map(\.fieldname)
         XCTAssertFalse(fieldnames.contains("lft"))
@@ -125,6 +136,100 @@ final class EndpointTests: XCTestCase {
     }
 }
 
+final class DependsOnTests: XCTestCase {
+    private func makeDoc(_ raw: [String: FrappeValue]) -> Document {
+        Document(raw: raw)
+    }
+
+    func testEvalExpressions() {
+        let evaluator = DependsOnEvaluator(
+            document: makeDoc([
+                "is_return": .int(0), "status": .string("Paid"), "qty": .double(3),
+            ]))
+        XCTAssertFalse(evaluator.isVisible("eval:doc.is_return"))
+        XCTAssertTrue(evaluator.isVisible("eval:!doc.is_return"))
+        XCTAssertTrue(evaluator.isVisible("eval:doc.status == \"Paid\""))
+        XCTAssertFalse(evaluator.isVisible("eval:doc.status != \"Paid\""))
+        XCTAssertTrue(evaluator.isVisible("eval:doc.qty > 1 && !doc.is_return"))
+        XCTAssertTrue(evaluator.isVisible("eval:in_list([\"Paid\", \"Unpaid\"], doc.status)"))
+    }
+
+    func testBareFieldnameAndDefaults() {
+        let evaluator = DependsOnEvaluator(
+            document: makeDoc(["customer": .string("Northwind"), "discount": .double(0)]))
+        XCTAssertTrue(evaluator.isVisible("customer"))
+        XCTAssertFalse(evaluator.isVisible("discount"))
+        XCTAssertFalse(evaluator.isVisible("missing_field"))
+        XCTAssertTrue(evaluator.isVisible(nil))
+        XCTAssertTrue(evaluator.isVisible(""))
+        // Unevaluable expressions fail open: show more, never less.
+        XCTAssertTrue(evaluator.isVisible("eval:frappe.boot.something.unknowable"))
+        XCTAssertTrue(evaluator.isVisible("eval:))broken(("))
+    }
+}
+
+final class HTMLTableTests: XCTestCase {
+    func testParsesDemoTaxBreakup() throws {
+        let invoice = try Document.list(from: Data(DemoFixtures.salesInvoiceDocs.utf8))[0]
+        let html = try XCTUnwrap(invoice["other_charges_calculation"]?.stringValue)
+        let table = try XCTUnwrap(HTMLTable.firstTable(in: html))
+        XCTAssertEqual(table.headers, ["Item", "Taxable Amount", "Shipping & Handling"])
+        XCTAssertEqual(table.rows.count, 3)
+        XCTAssertEqual(table.rows[0], ["WT-1000", "$ 7,400.00", "(5.0%) $ 370.00"])
+        XCTAssertFalse(table.columnIsNumeric(0))
+        XCTAssertTrue(table.columnIsNumeric(1))
+        XCTAssertTrue(table.columnIsNumeric(2))
+    }
+
+    func testNonTableHTMLReturnsNil() {
+        XCTAssertNil(HTMLTable.firstTable(in: "<p>Just a note</p>"))
+        XCTAssertNil(HTMLTable.firstTable(in: "plain text"))
+    }
+}
+
+final class ListViewSettingsTests: XCTestCase {
+    func testParsesFieldsJSON() {
+        let doc = Document(raw: [
+            "name": .string("Sales Invoice"),
+            "fields": .string(
+                #"[{"fieldname":"status","label":"Status"},{"fieldname":"grand_total"}]"#),
+        ])
+        XCTAssertEqual(
+            LiveDataSource.columns(fromListViewSettings: doc), ["status", "grand_total"])
+
+        let empty = Document(raw: ["fields": .string("[]")])
+        XCTAssertNil(LiveDataSource.columns(fromListViewSettings: empty))
+    }
+}
+
+final class DeskURLTests: XCTestCase {
+    private let base = URL(string: "https://erp.example.com")!
+
+    func testDeskURLs() {
+        XCTAssertEqual(DeskURL.slug("Sales Invoice"), "sales-invoice")
+        XCTAssertEqual(
+            DeskURL.list(base: base, doctype: "Sales Invoice").absoluteString,
+            "https://erp.example.com/app/sales-invoice")
+        XCTAssertEqual(
+            DeskURL.document(base: base, doctype: "Sales Invoice", name: "ACC-SINV-2025-00042")
+                .absoluteString,
+            "https://erp.example.com/app/sales-invoice/ACC-SINV-2025-00042")
+        XCTAssertEqual(
+            DeskURL.queryReport(base: base, reportName: "Profit and Loss Statement")
+                .absoluteString,
+            "https://erp.example.com/app/query-report/Profit%20and%20Loss%20Statement")
+    }
+
+    func testNameNeedingEncoding() {
+        // Account names routinely contain spaces and can contain slashes;
+        // both must stay inside one path component.
+        let url = DeskURL.document(base: base, doctype: "Account", name: "Repairs / Maintenance - TL")
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://erp.example.com/app/account/Repairs%20%2F%20Maintenance%20-%20TL")
+    }
+}
+
 final class FrappeValueTests: XCTestCase {
     func testBoolCoercions() {
         XCTAssertEqual(FrappeValue.int(1).boolValue, true)
@@ -153,7 +258,7 @@ final class ChangeProbeTests: XCTestCase {
             -> ReportResult {
             throw ERPNextError(message: "unused")
         }
-        func metaBundle(for doctype: String) async throws -> [DocTypeMeta] { [] }
+        func metaBundle(for doctype: String) async throws -> MetaBundle { MetaBundle(metas: []) }
         func list(
             _ doctype: String, fields: [String], filters: [ListFilter],
             orderBy: String?, limitStart: Int, limitPageLength: Int
@@ -183,11 +288,11 @@ final class ChangeProbeTests: XCTestCase {
 
 final class QuickFilterTests: XCTestCase {
     func testStandardFilterFieldsFromMeta() throws {
-        let invoiceMeta = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))[0]
+        let invoiceMeta = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8)).metas[0]
         XCTAssertEqual(
             invoiceMeta.standardFilterFields.map(\.fieldname), ["customer", "status"])
 
-        let accountMeta = try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8))[0]
+        let accountMeta = try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8)).metas[0]
         XCTAssertEqual(accountMeta.standardFilterFields.map(\.fieldname), ["root_type"])
     }
 
@@ -232,6 +337,33 @@ final class QuickFilterTests: XCTestCase {
     }
 }
 
+final class SortCountAndSnapshotTests: XCTestCase {
+    func testDemoSortAndCount() async throws {
+        let demo = DemoDataSource()
+        let ascending = try await demo.list(
+            "Sales Invoice", fields: [], filters: [], orderBy: "posting_date asc",
+            limitStart: 0, limitPageLength: 50)
+        XCTAssertEqual(ascending.first?.name, "ACC-SINV-2025-00039")
+        let descending = try await demo.list(
+            "Sales Invoice", fields: [], filters: [], orderBy: "grand_total desc",
+            limitStart: 0, limitPageLength: 50)
+        XCTAssertEqual(descending.first?.name, "ACC-SINV-2025-00040")
+
+        let total = try await demo.count("Sales Invoice", filters: [])
+        XCTAssertEqual(total, 4)
+        let paid = try await demo.count(
+            "Sales Invoice", filters: [ListFilter("status", "=", .string("Paid"))])
+        XCTAssertEqual(paid, 2)
+    }
+
+    func testReportResultCodableRoundTrip() throws {
+        let original = try ReportResult.decode(from: Data(DemoFixtures.profitAndLoss.utf8))
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ReportResult.self, from: encoded)
+        XCTAssertEqual(decoded, original)
+    }
+}
+
 final class DemoDataSourceTests: XCTestCase {
     func testDemoServesEveryFixtureThroughTheLivePipeline() async throws {
         let demo = DemoDataSource()
@@ -251,7 +383,7 @@ final class DemoDataSourceTests: XCTestCase {
         XCTAssertEqual(invoices.count, 4)
 
         let invoice = try await demo.document("Sales Invoice", name: "ACC-SINV-2025-00042")
-        let meta = try await demo.metaBundle(for: "Sales Invoice")[0]
+        let meta = try await demo.metaBundle(for: "Sales Invoice").metas[0]
         let itemsField = try XCTUnwrap(meta.field(named: "items"))
         XCTAssertEqual(invoice.childRows(for: itemsField).count, 3)
     }

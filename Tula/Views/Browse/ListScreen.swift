@@ -1,8 +1,11 @@
 import ERPNextKit
 import SwiftUI
 
-/// Generic list view for any DocType: columns come from the metadata's
-/// `in_list_view` fields, exactly as Desk builds its list views.
+/// Generic list view for any DocType, mirroring Desk's list recipe:
+/// **Title (link) → status → configured columns → ID → modified-ago**, sorted
+/// by the user's saved sort (falling back to the DocType default), with
+/// infinite scroll and a total count. Screens restore instantly from the
+/// session cache and refresh silently (ARCHITECTURE.md §11).
 struct ListScreen: View {
     let doctype: String
 
@@ -13,10 +16,42 @@ struct ListScreen: View {
     @State private var searchText = ""
     /// Active quick-filter values, fieldname → equality value.
     @State private var quickFilters: [String: String] = [:]
+    /// User's in-app sort choice; nil = saved/default sort.
+    @State private var sortOverride: SortSpec?
+    @State private var isLoadingMore = false
+    @State private var totalCount: Int?
+
+    struct SortSpec: Hashable {
+        var fieldname: String
+        var descending: Bool
+    }
 
     struct Loaded {
         var meta: DocTypeMeta
+        /// Desk's saved List View Settings when present, else `in_list_view`.
+        var columns: [DocField]
         var rows: [Document]
+        var sort: SortSpec
+        var hasMore: Bool
+
+        var statusField: DocField? {
+            meta.field(named: "status")
+        }
+
+        /// Columns for the middle of the table: everything except the
+        /// synthesized title/status/ID columns.
+        var middleColumns: [DocField] {
+            columns.filter {
+                $0.fieldname != meta.titleField && $0.fieldname != "status"
+                    && $0.fieldname != "name"
+            }
+        }
+
+        /// Row whose appearance triggers the next page fetch.
+        var loadMoreTriggerID: String? {
+            guard hasMore, !rows.isEmpty else { return nil }
+            return rows[max(0, rows.count - 10)].id
+        }
     }
 
     var body: some View {
@@ -45,12 +80,18 @@ struct ListScreen: View {
         .navigationTitle(doctype)
         .searchable(text: $searchText, prompt: Text("Search \(doctype)"))
         .toolbar {
-            RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
+            sortToolbar
+            OpenInDeskToolbar(route: .doctypeList(doctype))
+            RefreshToolbar(lastUpdated: lastUpdated, detail: countDetail) { refreshToken += 1 }
         }
         .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
-        .task(
-            id: "\(model.sourceGeneration)-\(doctype)-\(refreshToken)-\(searchText)-\(filtersKey)"
-        ) {
+        .task(id: taskKey) {
+            // Restore the last-loaded screen instantly, then refresh silently.
+            if case .loading = state,
+                let cached: (value: Loaded, savedAt: Date) = model.cache.screen(cacheKey) {
+                state = .loaded(cached.value)
+                lastUpdated = cached.savedAt
+            }
             // Debounce keystrokes; the task is cancelled and restarted on
             // every change, so only a pause reaches the server.
             if !searchText.isEmpty {
@@ -61,12 +102,95 @@ struct ListScreen: View {
         }
     }
 
+    private var taskKey: String {
+        "\(cacheKey)-\(refreshToken)-\(searchText)"
+    }
+
+    private var cacheKey: String {
+        let sort = sortOverride.map { "\($0.fieldname):\($0.descending)" } ?? "auto"
+        return "list|\(model.sourceGeneration)|\(doctype)|\(filtersKey)|\(sort)"
+    }
+
     /// Stable task-id component for the quick-filter dictionary.
     private var filtersKey: String {
         quickFilters.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "&")
     }
+
+    private var countDetail: String? {
+        guard case .loaded(let loaded) = state, let totalCount,
+            totalCount > loaded.rows.count
+        else { return nil }
+        return "\(loaded.rows.count) of \(totalCount.formatted())"
+    }
+
+    // MARK: Sort
+
+    @ToolbarContentBuilder
+    private var sortToolbar: some ToolbarContent {
+        if case .loaded(let loaded) = state {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    ForEach(sortCandidates(loaded), id: \.fieldname) { candidate in
+                        Toggle(isOn: Binding {
+                            loaded.sort.fieldname == candidate.fieldname
+                        } set: { _ in
+                            sortOverride = SortSpec(
+                                fieldname: candidate.fieldname,
+                                descending: loaded.sort.descending)
+                        }) {
+                            Text(candidate.label)
+                        }
+                    }
+                    Divider()
+                    Toggle(isOn: Binding {
+                        loaded.sort.descending
+                    } set: { descending in
+                        sortOverride = SortSpec(
+                            fieldname: loaded.sort.fieldname, descending: descending)
+                    }) {
+                        Text("Descending")
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+                .menuIndicator(.hidden)
+                .help("Sort order")
+            }
+        }
+    }
+
+    private func sortCandidates(_ loaded: Loaded) -> [(fieldname: String, label: String)] {
+        var seen = Set<String>()
+        var candidates: [(String, String)] = []
+        func add(_ fieldname: String, _ label: String) {
+            guard !seen.contains(fieldname) else { return }
+            seen.insert(fieldname)
+            candidates.append((fieldname, label))
+        }
+        add(loaded.meta.sortField, fieldLabel(loaded.meta.sortField, in: loaded.meta))
+        for column in loaded.columns {
+            add(column.fieldname, column.label)
+        }
+        add("modified", "Last Modified")
+        add("creation", "Created")
+        add("name", "ID")
+        return candidates
+    }
+
+    private func fieldLabel(_ fieldname: String, in meta: DocTypeMeta) -> String {
+        switch fieldname {
+        case "modified": return "Last Modified"
+        case "creation": return "Created"
+        case "name": return "ID"
+        default:
+            return meta.field(named: fieldname)?.label
+                ?? fieldname.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    // MARK: Empty state
 
     @ViewBuilder
     private var emptyState: some View {
@@ -85,19 +209,34 @@ struct ListScreen: View {
         }
     }
 
+    // MARK: Rows
+
     @ViewBuilder
     private func listBody(_ loaded: Loaded) -> some View {
         #if os(macOS)
             Table(loaded.rows) {
-                TableColumn("ID") { document in
+                TableColumn("Title") { document in
                     NavigationLink(
                         value: Route.document(doctype: doctype, name: document.name)
                     ) {
-                        Text(document.name).foregroundStyle(.tint)
+                        Text(document.title(using: loaded.meta))
+                            .fontWeight(.medium)
+                            .foregroundStyle(.tint)
                     }
                     .buttonStyle(.plain)
+                    .onAppear { maybeLoadMore(after: document, in: loaded) }
                 }
-                TableColumnForEach(loaded.meta.listFields) { field in
+                if let statusField = loaded.statusField {
+                    TableColumn("Status") { document in
+                        FieldValueView(
+                            fieldname: statusField.fieldname,
+                            fieldtype: statusField.fieldtype,
+                            options: statusField.options,
+                            value: document["status"],
+                            linkEnabled: false)
+                    }
+                }
+                TableColumnForEach(loaded.middleColumns) { field in
                     TableColumn(field.label) { document in
                         FieldValueView(
                             fieldname: field.fieldname,
@@ -111,12 +250,23 @@ struct ListScreen: View {
                             linkEnabled: false)
                     }
                 }
+                TableColumn("ID") { document in
+                    Text(document.name)
+                        .foregroundStyle(.secondary)
+                }
+                TableColumn("Modified") { document in
+                    Text(
+                        ValueFormatting.relativeModified(
+                            document.raw["modified"]?.nonEmptyString) ?? "")
+                        .foregroundStyle(.secondary)
+                }
             }
         #else
             List(loaded.rows) { document in
                 NavigationLink(value: Route.document(doctype: doctype, name: document.name)) {
-                    rowLabel(document, meta: loaded.meta)
+                    rowLabel(document, loaded: loaded)
                 }
+                .onAppear { maybeLoadMore(after: document, in: loaded) }
             }
             .listStyle(.plain)
             .refreshable { await load() }
@@ -124,13 +274,13 @@ struct ListScreen: View {
     }
 
     #if !os(macOS)
-        private func rowLabel(_ document: Document, meta: DocTypeMeta) -> some View {
+        private func rowLabel(_ document: Document, loaded: Loaded) -> some View {
             VStack(alignment: .leading, spacing: 3) {
-                Text(document.title(using: meta))
+                Text(document.title(using: loaded.meta))
                     .fontWeight(.medium)
                 HStack(spacing: 10) {
-                    let secondary = meta.listFields
-                        .filter { $0.fieldname != meta.titleField }
+                    let secondary = loaded.columns
+                        .filter { $0.fieldname != loaded.meta.titleField }
                         .prefix(3)
                     ForEach(Array(secondary)) { field in
                         if document[field.fieldname] != nil {
@@ -154,30 +304,133 @@ struct ListScreen: View {
         }
     #endif
 
+    // MARK: Loading
+
+    private static let pageSize = 50
+
+    private func resolvedSort(bundle: MetaBundle, meta: DocTypeMeta) -> SortSpec {
+        if let sortOverride { return sortOverride }
+        if let saved = bundle.listSortBy, isSortable(saved, in: meta) {
+            return SortSpec(
+                fieldname: saved, descending: bundle.listSortDescending ?? true)
+        }
+        if isSortable(meta.sortField, in: meta) {
+            return SortSpec(fieldname: meta.sortField, descending: meta.sortDescending)
+        }
+        return SortSpec(fieldname: "modified", descending: true)
+    }
+
+    private func isSortable(_ fieldname: String, in meta: DocTypeMeta) -> Bool {
+        ["modified", "creation", "name"].contains(fieldname)
+            || meta.field(named: fieldname) != nil
+    }
+
+    private func activeFilters(meta: DocTypeMeta) -> [ListFilter] {
+        var filters: [ListFilter] = []
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            // Desk's list search filters on the title field (or name).
+            filters.append(
+                ListFilter(meta.titleField ?? "name", "like", .string("%\(trimmed)%")))
+        }
+        for (fieldname, value) in quickFilters {
+            filters.append(ListFilter(fieldname, "=", .string(value)))
+        }
+        return filters
+    }
+
+    private func fetchFieldnames(meta: DocTypeMeta, columns: [DocField]) -> [String] {
+        var fieldnames = ["name", "modified"]
+        if let titleField = meta.titleField, !fieldnames.contains(titleField) {
+            fieldnames.append(titleField)
+        }
+        if meta.field(named: "status") != nil {
+            fieldnames.append("status")
+        }
+        for field in columns where !fieldnames.contains(field.fieldname) {
+            fieldnames.append(field.fieldname)
+        }
+        return fieldnames
+    }
+
     private func load() async {
         if case .loaded = state {} else { state = .loading }
         do {
-            let bundle = try await model.dataSource.metaBundle(for: doctype)
-            guard let meta = bundle.first else {
+            let bundle = try await model.cache.metaBundle(
+                for: doctype, using: model.dataSource)
+            guard let meta = bundle.metas.first else {
                 throw ERPNextError(message: "No metadata for \(doctype)")
             }
-            var filters: [ListFilter] = []
-            let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                // Desk's list search filters on the title field (or name).
-                filters.append(
-                    ListFilter(meta.titleField ?? "name", "like", .string("%\(trimmed)%")))
+
+            var columns = meta.listFields
+            if let configured = await model.cache.listViewColumns(
+                for: doctype, using: model.dataSource) {
+                let mapped = configured.compactMap { fieldname -> DocField? in
+                    guard !fieldname.hasPrefix("_"),
+                        let field = meta.field(named: fieldname),
+                        field.fieldtype.isPresentable, !field.hidden
+                    else { return nil }
+                    return field
+                }
+                if !mapped.isEmpty { columns = mapped }
             }
-            for (fieldname, value) in quickFilters {
-                filters.append(ListFilter(fieldname, "=", .string(value)))
-            }
+
+            let sort = resolvedSort(bundle: bundle, meta: meta)
+            let filters = activeFilters(meta: meta)
+            // A background refresh re-fetches everything currently on screen
+            // (up to a sanity cap) so pagination state survives it.
+            let existingCount: Int = {
+                if case .loaded(let loaded) = state { return loaded.rows.count }
+                return 0
+            }()
+            let limit = min(max(Self.pageSize, existingCount), 500)
+
             let rows = try await model.dataSource.list(
-                doctype, fields: meta.listFieldnames, filters: filters,
-                orderBy: "modified desc", limitStart: 0, limitPageLength: 50)
-            state = .loaded(Loaded(meta: meta, rows: rows))
+                doctype, fields: fetchFieldnames(meta: meta, columns: columns),
+                filters: filters,
+                orderBy: "\(sort.fieldname) \(sort.descending ? "desc" : "asc")",
+                limitStart: 0, limitPageLength: limit)
+
+            let loaded = Loaded(
+                meta: meta, columns: columns, rows: rows, sort: sort,
+                hasMore: rows.count == limit)
+            state = .loaded(loaded)
             lastUpdated = Date()
+            model.cache.setScreen(cacheKey, loaded)
+
+            totalCount = try? await model.dataSource.count(doctype, filters: filters)
         } catch {
-            state = .failed(error.localizedDescription)
+            // Keep showing cached content when a refresh fails (offline);
+            // only surface errors when there's nothing on screen.
+            if case .loaded = state {} else {
+                state = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func maybeLoadMore(after document: Document, in loaded: Loaded) {
+        guard document.id == loaded.loadMoreTriggerID, !isLoadingMore else { return }
+        Task { await loadMore() }
+    }
+
+    private func loadMore() async {
+        guard case .loaded(var loaded) = state, loaded.hasMore, !isLoadingMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let page = try await model.dataSource.list(
+                doctype, fields: fetchFieldnames(meta: loaded.meta, columns: loaded.columns),
+                filters: activeFilters(meta: loaded.meta),
+                orderBy:
+                    "\(loaded.sort.fieldname) \(loaded.sort.descending ? "desc" : "asc")",
+                limitStart: loaded.rows.count, limitPageLength: Self.pageSize)
+            let known = Set(loaded.rows.map(\.name))
+            loaded.rows.append(contentsOf: page.filter { !known.contains($0.name) })
+            loaded.hasMore = page.count == Self.pageSize
+            state = .loaded(loaded)
+            model.cache.setScreen(cacheKey, loaded)
+        } catch {
+            // Silent: the next scroll attempt retries.
         }
     }
 }

@@ -24,13 +24,21 @@ public protocol DataSource: Sendable {
     func fiscalYears() async throws -> [FiscalYear]
     func runReport(_ reportName: String, filters: [String: FrappeValue]) async throws -> ReportResult
 
-    /// The DocType's metadata plus the metadata of all its child tables.
-    func metaBundle(for doctype: String) async throws -> [DocTypeMeta]
+    /// The DocType's metadata, its child-table DocTypes, and the user's Desk
+    /// view settings that arrive in the same response (grid columns).
+    func metaBundle(for doctype: String) async throws -> MetaBundle
     /// Link-field autocomplete. Declared as a requirement (not just an
     /// extension convenience) so calls through `any DataSource` dispatch to
     /// the concrete implementation — an extension-only method silently
     /// resolves to the default and returns nothing.
     func searchLink(doctype: String, query: String) async throws -> [LinkOption]
+    /// Ordered column fieldnames from Desk's list settings for this DocType
+    /// (the "List View Settings" document users edit via the list's gear in
+    /// the web UI), or nil when none are configured.
+    func listViewColumns(doctype: String) async throws -> [String]?
+    /// Total matching documents (`frappe.client.get_count`), or nil when the
+    /// source can't say.
+    func count(_ doctype: String, filters: [ListFilter]) async throws -> Int?
     func list(
         _ doctype: String, fields: [String], filters: [ListFilter],
         orderBy: String?, limitStart: Int, limitPageLength: Int
@@ -44,6 +52,14 @@ extension DataSource {
     /// empty so conformances without a search backend still compile.
     public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
         []
+    }
+
+    public func listViewColumns(doctype: String) async throws -> [String]? {
+        nil
+    }
+
+    public func count(_ doctype: String, filters: [ListFilter]) async throws -> Int? {
+        nil
     }
 
     /// Cheap change probe: the `modified` timestamp of the most recently
@@ -116,7 +132,7 @@ public struct LiveDataSource: DataSource {
         return try ReportResult.decode(from: data)
     }
 
-    public func metaBundle(for doctype: String) async throws -> [DocTypeMeta] {
+    public func metaBundle(for doctype: String) async throws -> MetaBundle {
         let data = try await client.data(
             for: .method(.getDocType, parameters: ["doctype": doctype, "with_parent": "1"]))
         return try MetaDecoder.bundle(from: data)
@@ -155,6 +171,43 @@ public struct LiveDataSource: DataSource {
             doctype, fields: ["name"], filters: filters,
             orderBy: "modified desc", limitStart: 0, limitPageLength: 20)
         return docs.map { LinkOption(value: $0.name) }
+    }
+
+    public func count(_ doctype: String, filters: [ListFilter]) async throws -> Int? {
+        var parameters = ["doctype": doctype]
+        if !filters.isEmpty {
+            let encoded = FrappeValue.array(filters.map {
+                .array([.string($0.fieldname), .string($0.op), $0.value])
+            })
+            parameters["filters"] = try encoded.encodedJSONString()
+        }
+        guard let data = try? await client.data(for: .method(.getCount, parameters: parameters))
+        else { return nil }
+        return try? FrappeValue.decode(from: data).objectValue?["message"]?.intValue
+    }
+
+    public func listViewColumns(doctype: String) async throws -> [String]? {
+        // Missing settings, or a server that restricts reading them, simply
+        // means "use the in_list_view defaults".
+        guard
+            let data = try? await client.data(
+                for: .resource(doctype: "List View Settings", name: doctype)),
+            let doc = try? Document.single(from: data)
+        else { return nil }
+        return Self.columns(fromListViewSettings: doc)
+    }
+
+    /// The settings document's `fields` property is a JSON string holding an
+    /// array of `{"fieldname": ...}` dicts (older servers: bare strings).
+    static func columns(fromListViewSettings doc: Document) -> [String]? {
+        guard let raw = doc["fields"]?.nonEmptyString,
+            let decoded = try? FrappeValue.decode(from: Data(raw.utf8)),
+            let entries = decoded.arrayValue
+        else { return nil }
+        let names = entries.compactMap { entry in
+            entry.objectValue?["fieldname"]?.nonEmptyString ?? entry.nonEmptyString
+        }
+        return names.isEmpty ? nil : names
     }
 
     private func searchLinkMethod(doctype: String, query: String) async throws -> [LinkOption] {

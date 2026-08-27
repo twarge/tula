@@ -16,6 +16,7 @@ struct DocumentScreen: View {
     struct Loaded {
         var meta: DocTypeMeta
         var childMetas: [String: DocTypeMeta]
+        var gridColumns: [String: [GridColumn]]
         var document: Document
     }
 
@@ -35,7 +36,7 @@ struct DocumentScreen: View {
                 ScrollView {
                     DocumentFormView(
                         meta: loaded.meta, childMetas: loaded.childMetas,
-                        document: loaded.document)
+                        document: loaded.document, gridColumns: loaded.gridColumns)
                         .padding()
                         .frame(maxWidth: 900, alignment: .leading)
                         .frame(maxWidth: .infinity)
@@ -45,12 +46,22 @@ struct DocumentScreen: View {
         }
         .navigationTitle(title)
         .toolbar {
+            OpenInDeskToolbar(route: .document(doctype: doctype, name: name))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
         .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
         .task(id: "\(model.sourceGeneration)-\(doctype)-\(name)-\(refreshToken)") {
+            if case .loading = state,
+                let cached: (value: Loaded, savedAt: Date) = model.cache.screen(cacheKey) {
+                state = .loaded(cached.value)
+                lastUpdated = cached.savedAt
+            }
             await load()
         }
+    }
+
+    private var cacheKey: String {
+        "doc|\(model.sourceGeneration)|\(doctype)|\(name)"
     }
 
     private var title: String {
@@ -67,17 +78,26 @@ struct DocumentScreen: View {
             state = .loading
         }
         do {
-            let bundle = try await model.dataSource.metaBundle(for: doctype)
-            guard let meta = bundle.first else {
+            let bundle = try await model.cache.metaBundle(
+                for: doctype, using: model.dataSource)
+            guard let meta = bundle.metas.first else {
                 throw ERPNextError(message: "No metadata for \(doctype)")
             }
             let document = try await model.dataSource.document(doctype, name: name)
             let childMetas = Dictionary(
-                uniqueKeysWithValues: bundle.dropFirst().map { ($0.name, $0) })
-            state = .loaded(Loaded(meta: meta, childMetas: childMetas, document: document))
+                uniqueKeysWithValues: bundle.metas.dropFirst().map { ($0.name, $0) })
+            let loaded = Loaded(
+                meta: meta, childMetas: childMetas, gridColumns: bundle.gridColumns,
+                document: document)
+            state = .loaded(loaded)
             lastUpdated = Date()
+            model.cache.setScreen(cacheKey, loaded)
         } catch {
-            state = .failed(error.localizedDescription)
+            // Keep cached content when a refresh fails; only surface errors
+            // when the screen is empty.
+            if case .loaded = state {} else {
+                state = .failed(error.localizedDescription)
+            }
         }
     }
 }
@@ -89,22 +109,32 @@ struct DocumentFormView: View {
     let meta: DocTypeMeta
     let childMetas: [String: DocTypeMeta]
     let document: Document
+    let gridColumns: [String: [GridColumn]]
     private let layout: FormLayout
+    private let evaluator: DependsOnEvaluator
 
     @State private var selectedTab = 0
 
-    init(meta: DocTypeMeta, childMetas: [String: DocTypeMeta], document: Document) {
+    init(
+        meta: DocTypeMeta, childMetas: [String: DocTypeMeta], document: Document,
+        gridColumns: [String: [GridColumn]] = [:]
+    ) {
         self.meta = meta
         self.childMetas = childMetas
         self.document = document
+        self.gridColumns = gridColumns
         self.layout = FormLayout.parse(meta)
+        self.evaluator = DependsOnEvaluator(document: document)
     }
 
     var body: some View {
+        // Desk evaluates depends_on on tabs and sections too.
+        let visibleTabs = layout.tabs.filter { evaluator.isVisible($0.breakField?.dependsOn) }
+
         VStack(alignment: .leading, spacing: 16) {
-            if layout.tabs.count > 1 {
+            if visibleTabs.count > 1 {
                 Picker("Tab", selection: $selectedTab) {
-                    ForEach(layout.tabs) { tab in
+                    ForEach(visibleTabs) { tab in
                         Text(tab.label).tag(tab.id)
                     }
                 }
@@ -112,44 +142,125 @@ struct DocumentFormView: View {
                 .labelsHidden()
             }
 
-            let tab = layout.tabs.first { $0.id == selectedTab } ?? layout.tabs.first
+            let tab = visibleTabs.first { $0.id == selectedTab } ?? visibleTabs.first
             if let tab {
-                ForEach(tab.sections) { section in
-                    FormSectionView(
-                        section: section, childMetas: childMetas, document: document)
+                ForEach(cards(for: tab)) { card in
+                    FormCardView(
+                        card: card, childMetas: childMetas, document: document,
+                        gridColumns: gridColumns)
                 }
+            }
+        }
+    }
+
+    /// Desk renders an unlabeled Section Break as a layout break *inside*
+    /// the current visual block — only labeled sections start a new one.
+    /// Group sections into cards accordingly, so e.g. a taxes grid and its
+    /// totals stay inside the "Taxes and Charges" card instead of splitting
+    /// into separate boxes.
+    private func cards(for tab: FormLayout.Tab) -> [FormCard] {
+        var cards: [FormCard] = []
+        for section in tab.sections {
+            guard evaluator.isVisible(section.breakField?.dependsOn),
+                let prepared = prepare(section)
+            else { continue }
+            if prepared.label != nil || cards.isEmpty {
+                cards.append(FormCard(label: prepared.label, sections: [prepared]))
+            } else {
+                cards[cards.count - 1].sections.append(prepared)
+            }
+        }
+        return cards
+    }
+
+    /// Applies field-level visibility once, so cards with nothing to show
+    /// are dropped entirely.
+    private func prepare(_ section: FormLayout.Section) -> PreparedSection? {
+        let columns = section.columns
+            .map { $0.filter(isFieldVisible) }
+            .filter { !$0.isEmpty }
+        let tables = section.tables.filter { evaluator.isVisible($0.dependsOn) }
+        guard !columns.isEmpty || !tables.isEmpty else { return nil }
+        return PreparedSection(
+            id: section.id, label: section.label, columns: columns, tables: tables)
+    }
+
+    private func isFieldVisible(_ field: DocField) -> Bool {
+        evaluator.isVisible(field.dependsOn) && !isRedundantBaseTwin(field)
+    }
+
+    /// ERPNext convention: `base_*` fields duplicate their twin in company
+    /// currency. Desk hides them when the document is already in company
+    /// currency (conversion rate 1); mirror that.
+    private func isRedundantBaseTwin(_ field: DocField) -> Bool {
+        guard field.fieldname.hasPrefix("base_") else { return false }
+        let twin = String(field.fieldname.dropFirst("base_".count))
+        guard meta.field(named: twin) != nil else { return false }
+        return (document["conversion_rate"]?.doubleValue ?? 1) == 1
+    }
+}
+
+/// A section with visibility already applied.
+private struct PreparedSection: Identifiable {
+    let id: Int
+    var label: String?
+    var columns: [[DocField]]
+    var tables: [DocField]
+}
+
+/// One visual block: a labeled section plus any unlabeled sections that
+/// follow it.
+private struct FormCard: Identifiable {
+    var id: Int { sections.first?.id ?? -1 }
+    var label: String?
+    var sections: [PreparedSection]
+}
+
+private struct FormCardView: View {
+    let card: FormCard
+    let childMetas: [String: DocTypeMeta]
+    let document: Document
+    let gridColumns: [String: [GridColumn]]
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 20) {
+                ForEach(card.sections) { section in
+                    FormSectionContent(
+                        section: section, cardLabel: card.label, childMetas: childMetas,
+                        document: document, gridColumns: gridColumns)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        } label: {
+            if let label = card.label {
+                Text(label)
+                    .font(.headline)
+                    .padding(.bottom, 2)
             }
         }
     }
 }
 
-private struct FormSectionView: View {
-    let section: FormLayout.Section
+private struct FormSectionContent: View {
+    let section: PreparedSection
+    let cardLabel: String?
     let childMetas: [String: DocTypeMeta]
     let document: Document
+    let gridColumns: [String: [GridColumn]]
 
     #if !os(macOS)
         @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
     var body: some View {
-        let columns = section.columns.filter { !$0.isEmpty }
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                if !columns.isEmpty {
-                    columnsView(columns)
-                }
-                ForEach(section.tables) { tableField in
-                    childTable(for: tableField)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            if !section.columns.isEmpty {
+                columnsView(section.columns)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(4)
-        } label: {
-            if let label = section.label {
-                Text(label)
-                    .font(.headline)
-                    .padding(.bottom, 2)
+            ForEach(section.tables) { tableField in
+                childTable(for: tableField)
             }
         }
     }
@@ -194,8 +305,9 @@ private struct FormSectionView: View {
         if let childDoctype = tableField.options,
             let childMeta = childMetas[childDoctype], !rows.isEmpty {
             ChildTableView(
-                title: tableField.label == section.label ? nil : tableField.label,
-                meta: childMeta, rows: rows, parentValues: document.raw)
+                title: tableField.label == cardLabel ? nil : tableField.label,
+                meta: childMeta, rows: rows, parentValues: document.raw,
+                serverColumns: gridColumns[childDoctype])
         }
     }
 }
@@ -219,21 +331,46 @@ private struct FieldRow: View {
                     value: document.raw[field.fieldname] ?? .int(0))
                 Text(field.label)
             }
-        } else if let value = document[field.fieldname] {
+        } else if field.isScanBarcodeField {
+            // Desk shows a barcode-scan input here; keep the affordance for
+            // visual parity, inert in a read-only client.
             VStack(alignment: .leading, spacing: 3) {
                 Text(field.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                FieldValueView(
-                    fieldname: field.fieldname,
-                    fieldtype: field.fieldtype,
-                    options: field.options,
-                    value: value,
-                    currencyCode: ValueFormatting.currencyCode(
-                        options: field.fieldtype == .currency ? field.options : nil,
-                        rowValues: document.raw,
-                        fallback: model.fallbackCurrencyCode))
-                    .fontWeight(field.bold ? .semibold : .regular)
+                HStack(spacing: 6) {
+                    Image(systemName: "barcode.viewfinder")
+                    Text(field.label)
+                    Spacer()
+                }
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: 320)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .help("Barcode scanning isn't available in a read-only client")
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(field.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let value = document[field.fieldname] {
+                    FieldValueView(
+                        fieldname: field.fieldname,
+                        fieldtype: field.fieldtype,
+                        options: field.options,
+                        value: value,
+                        currencyCode: ValueFormatting.currencyCode(
+                            options: field.fieldtype == .currency ? field.options : nil,
+                            rowValues: document.raw,
+                            fallback: model.fallbackCurrencyCode))
+                        .fontWeight(field.bold ? .semibold : .regular)
+                } else {
+                    // Desk shows empty fields as blank inputs, not gaps —
+                    // keep the field visible and reserve its value line.
+                    Text(verbatim: " ")
+                }
             }
         }
     }
@@ -249,18 +386,28 @@ private struct ChildTableView: View {
     let meta: DocTypeMeta
     let rows: [Document]
     let parentValues: [String: FrappeValue]
+    /// Desk's per-user grid configuration for this child DocType, if any.
+    let serverColumns: [GridColumn]?
 
     @Environment(AppModel.self) private var model
     @State private var visibleFieldnames: [String]
     @State private var detailRow: Document?
 
-    init(title: String?, meta: DocTypeMeta, rows: [Document], parentValues: [String: FrappeValue]) {
+    init(
+        title: String?, meta: DocTypeMeta, rows: [Document],
+        parentValues: [String: FrappeValue], serverColumns: [GridColumn]? = nil
+    ) {
         self.title = title
         self.meta = meta
         self.rows = rows
         self.parentValues = parentValues
+        self.serverColumns = serverColumns
+        // Precedence: this device's explicit choice → Desk grid settings →
+        // the DocType's in_list_view defaults.
         let stored = UserDefaults.standard.stringArray(forKey: Self.storageKey(meta.name))
-        _visibleFieldnames = State(initialValue: stored ?? meta.listFields.map(\.fieldname))
+        _visibleFieldnames = State(
+            initialValue: stored ?? serverColumns?.map(\.fieldname)
+                ?? meta.listFields.map(\.fieldname))
     }
 
     private static func storageKey(_ doctype: String) -> String {
@@ -304,8 +451,9 @@ private struct ChildTableView: View {
             }
             Divider()
             Button("Reset Columns") {
-                visibleFieldnames = meta.listFields.map(\.fieldname)
-                persistColumns()
+                visibleFieldnames =
+                    serverColumns?.map(\.fieldname) ?? meta.listFields.map(\.fieldname)
+                UserDefaults.standard.removeObject(forKey: Self.storageKey(meta.name))
             }
         } label: {
             Image(systemName: "gearshape")

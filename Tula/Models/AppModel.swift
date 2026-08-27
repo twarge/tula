@@ -19,6 +19,8 @@ final class AppModel {
     private(set) var dataSource: any DataSource
     /// Bumped whenever the data source changes so `.task(id:)` reloads screens.
     private(set) var sourceGeneration = 0
+    /// Session caches (metadata, screens, snapshots) — ARCHITECTURE.md §11.
+    let cache = SessionCache()
 
     var filterState = FinancialFilterState()
     private(set) var companies: [Company] = []
@@ -61,6 +63,7 @@ final class AppModel {
 
         dataSource = makeDataSource()
         sourceGeneration += 1
+        cache.removeAll()
         companies = []
         fiscalYears = []
         filterState = FinancialFilterState()
@@ -103,5 +106,11 @@ final class AppModel {
 
     var fallbackCurrencyCode: String? {
         filterState.company?.defaultCurrency
+    }
+
+    /// Base URL of the connected site's web UI; nil in demo mode (nothing to
+    /// open in a browser).
+    var webBaseURL: URL? {
+        (dataSource as? LiveDataSource)?.client.configuration.baseURL
     }
 }

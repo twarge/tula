@@ -11,6 +11,9 @@ public struct FormLayout: Sendable {
         public let id: Int
         public var label: String
         public var sections: [Section]
+        /// The Tab Break field that opened this tab (nil for the implicit
+        /// first tab); carries `depends_on` for whole-tab visibility.
+        public var breakField: DocField?
     }
 
     public struct Section: Sendable, Identifiable {
@@ -21,6 +24,9 @@ public struct FormLayout: Sendable {
         public var columns: [[DocField]]
         /// Child-table fields render full-width below the columns.
         public var tables: [DocField]
+        /// The Section Break field that opened this section (nil for the
+        /// implicit first section); carries `depends_on`.
+        public var breakField: DocField?
 
         public var isEmpty: Bool {
             columns.allSatisfy(\.isEmpty) && tables.isEmpty
@@ -32,8 +38,10 @@ public struct FormLayout: Sendable {
     public static func parse(_ meta: DocTypeMeta) -> FormLayout {
         var tabs: [Tab] = []
         var sections: [Section] = []
-        var currentSection = Section(id: 0, label: nil, collapsible: false, columns: [[]], tables: [])
+        var currentSection = Section(
+            id: 0, label: nil, collapsible: false, columns: [[]], tables: [], breakField: nil)
         var currentTabLabel = "Details"
+        var currentTabBreak: DocField?
         var nextSectionID = 1
         var nextTabID = 0
 
@@ -42,14 +50,18 @@ public struct FormLayout: Sendable {
                 sections.append(currentSection)
             }
             currentSection = Section(
-                id: nextSectionID, label: nil, collapsible: false, columns: [[]], tables: [])
+                id: nextSectionID, label: nil, collapsible: false, columns: [[]], tables: [],
+                breakField: nil)
             nextSectionID += 1
         }
 
         func closeTab() {
             closeSection()
             if !sections.isEmpty {
-                tabs.append(Tab(id: nextTabID, label: currentTabLabel, sections: sections))
+                tabs.append(
+                    Tab(
+                        id: nextTabID, label: currentTabLabel, sections: sections,
+                        breakField: currentTabBreak))
                 nextTabID += 1
             }
             sections = []
@@ -60,10 +72,12 @@ public struct FormLayout: Sendable {
             case .tabBreak:
                 closeTab()
                 currentTabLabel = field.label
+                currentTabBreak = field
             case .sectionBreak, .fold:
                 closeSection()
                 currentSection.label = field.raw["label"]?.nonEmptyString
                 currentSection.collapsible = field.collapsible
+                currentSection.breakField = field
             case .columnBreak:
                 currentSection.columns.append([])
             case .table, .tableMultiSelect:
