@@ -42,6 +42,7 @@ public enum ReadMethod: String, Sendable, CaseIterable {
     case treeChildren = "frappe.desk.treeview.get_children"
     case getCount = "frappe.client.get_count"
     case searchLink = "frappe.desk.search.search_link"
+    case getReportScript = "frappe.desk.query_report.get_script"
 }
 
 /// A list-endpoint filter, serialized as Frappe's `[fieldname, operator, value]`.

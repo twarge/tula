@@ -59,7 +59,17 @@ enum DemoFixtures {
               {"value": 941470.0, "label": "Total Income", "datatype": "Currency", "currency": "USD"},
               {"value": 708430.0, "label": "Total Expense", "datatype": "Currency", "currency": "USD"},
               {"value": 233040.0, "label": "Net Profit", "datatype": "Currency", "currency": "USD", "indicator": "Green"}
-            ]
+            ],
+            "chart": {
+              "type": "bar",
+              "data": {
+                "labels": ["Q1 2025", "Q2 2025", "Q3 2025", "Q4 2025"],
+                "datasets": [
+                  {"name": "Income", "values": [208150.0, 233010.0, 231520.0, 268790.0]},
+                  {"name": "Expense", "values": [161550.0, 175330.0, 171340.0, 200210.0]}
+                ]
+              }
+            }
           }
         }
         """#

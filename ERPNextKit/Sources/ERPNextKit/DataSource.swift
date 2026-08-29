@@ -39,6 +39,10 @@ public protocol DataSource: Sendable {
     /// Total matching documents (`frappe.client.get_count`), or nil when the
     /// source can't say.
     func count(_ doctype: String, filters: [ListFilter]) async throws -> Int?
+    /// The server's Query/Script reports (the Report DocType).
+    func reports() async throws -> [ReportInfo]
+    /// The Desk client script for a report; its filters are parsed from this.
+    func reportScript(name: String) async throws -> String?
     func list(
         _ doctype: String, fields: [String], filters: [ListFilter],
         orderBy: String?, limitStart: Int, limitPageLength: Int
@@ -59,6 +63,14 @@ extension DataSource {
     }
 
     public func count(_ doctype: String, filters: [ListFilter]) async throws -> Int? {
+        nil
+    }
+
+    public func reports() async throws -> [ReportInfo] {
+        []
+    }
+
+    public func reportScript(name: String) async throws -> String? {
         nil
     }
 
@@ -171,6 +183,35 @@ public struct LiveDataSource: DataSource {
             doctype, fields: ["name"], filters: filters,
             orderBy: "modified desc", limitStart: 0, limitPageLength: 20)
         return docs.map { LinkOption(value: $0.name) }
+    }
+
+    public func reports() async throws -> [ReportInfo] {
+        let data = try await client.data(
+            for: .resourceList(
+                doctype: "Report",
+                fields: ["name", "report_type", "ref_doctype", "module"],
+                filters: [
+                    ListFilter("disabled", "=", .int(0)),
+                    ListFilter(
+                        "report_type", "in",
+                        .array([.string("Query Report"), .string("Script Report")])),
+                ],
+                orderBy: "name asc", limitStart: 0, limitPageLength: 500))
+        return try Document.list(from: data).map { doc in
+            ReportInfo(
+                name: doc.name,
+                reportType: doc["report_type"]?.nonEmptyString ?? "Script Report",
+                refDoctype: doc["ref_doctype"]?.nonEmptyString,
+                module: doc["module"]?.nonEmptyString)
+        }
+    }
+
+    public func reportScript(name: String) async throws -> String? {
+        let data = try await client.data(
+            for: .method(.getReportScript, parameters: ["report_name": name]))
+        guard let root = try FrappeValue.decode(from: data).objectValue else { return nil }
+        return root["message"]?.objectValue?["script"]?.nonEmptyString
+            ?? root["script"]?.nonEmptyString
     }
 
     public func count(_ doctype: String, filters: [ListFilter]) async throws -> Int? {

@@ -108,6 +108,14 @@ public struct DemoDataSource: DataSource {
         }
     }
 
+    public func reports() async throws -> [ReportInfo] {
+        StandardReports.financialStatements.map {
+            ReportInfo(
+                name: $0.name, reportType: "Script Report", refDoctype: "GL Entry",
+                module: "Accounts")
+        }
+    }
+
     public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
         guard doctype == "Customer" else { return [] }
         let customers = ["Grant Plastics Ltd.", "Northwind Research", "Zany Brainy"]

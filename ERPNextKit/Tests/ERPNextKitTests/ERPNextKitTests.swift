@@ -337,6 +337,93 @@ final class QuickFilterTests: XCTestCase {
     }
 }
 
+final class ReportFilterParserTests: XCTestCase {
+    /// Shaped like a real ERPNext report script: computed date defaults,
+    /// session-company default, select options as newline string, a
+    /// function-valued key, reqd/hidden flags.
+    private let script = #"""
+        frappe.query_reports["Accounts Receivable Summary"] = {
+            "filters": [
+                {
+                    "fieldname": "company",
+                    "label": __("Company"),
+                    "fieldtype": "Link",
+                    "options": "Company",
+                    "default": frappe.defaults.get_user_default("Company"),
+                    "reqd": 1
+                },
+                {
+                    "fieldname": "report_date",
+                    "label": __("Posting Date"),
+                    "fieldtype": "Date",
+                    "default": frappe.datetime.get_today()
+                },
+                {
+                    "fieldname": "ageing_based_on",
+                    "label": __("Ageing Based On"),
+                    "fieldtype": "Select",
+                    "options": "Posting Date\nDue Date",
+                    "default": "Due Date"
+                },
+                {
+                    "fieldname": "customer",
+                    "label": __("Customer"),
+                    "fieldtype": "Link",
+                    "options": "Customer",
+                    "get_query": function() { return { filters: { disabled: 0 } }; }
+                },
+                {
+                    "fieldname": "show_future_payments",
+                    "label": __("Show Future Payments"),
+                    "fieldtype": "Check"
+                },
+                {
+                    "fieldname": "party_hidden",
+                    "fieldtype": "Data",
+                    "hidden": 1
+                }
+            ]
+        };
+        """#
+
+    func testParsesRealisticScript() throws {
+        let defs = try XCTUnwrap(
+            ReportFilterParser.definitions(
+                reportName: "Accounts Receivable Summary", script: script,
+                defaultCompany: "Wind Power LLC"))
+        XCTAssertEqual(defs.count, 6)
+
+        let company = defs[0]
+        XCTAssertEqual(company.fieldtype, .link)
+        XCTAssertEqual(company.options, "Company")
+        XCTAssertEqual(company.defaultValue, "Wind Power LLC")
+        XCTAssertTrue(company.required)
+
+        let date = defs[1]
+        XCTAssertEqual(date.fieldtype, .date)
+        // Computed default resolves to a real yyyy-MM-dd date.
+        XCTAssertNotNil(date.defaultValue)
+        XCTAssertEqual(date.defaultValue?.count, 10)
+
+        let ageing = defs[2]
+        XCTAssertEqual(ageing.selectOptions, ["Posting Date", "Due Date"])
+        XCTAssertEqual(ageing.defaultValue, "Due Date")
+
+        XCTAssertEqual(defs[3].options, "Customer")
+        XCTAssertEqual(defs[4].fieldtype, .check)
+        XCTAssertTrue(defs[5].hidden)
+    }
+
+    func testBrokenScriptFailsOpen() {
+        XCTAssertNil(
+            ReportFilterParser.definitions(
+                reportName: "X", script: "this is (((not js"))
+        XCTAssertNil(
+            ReportFilterParser.definitions(
+                reportName: "X", script: "frappe.query_reports[\"Y\"] = {};"))
+    }
+}
+
 final class SortCountAndSnapshotTests: XCTestCase {
     func testDemoSortAndCount() async throws {
         let demo = DemoDataSource()
@@ -361,6 +448,21 @@ final class SortCountAndSnapshotTests: XCTestCase {
         let encoded = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ReportResult.self, from: encoded)
         XCTAssertEqual(decoded, original)
+    }
+
+    func testChartDecodes() throws {
+        let result = try ReportResult.decode(from: Data(DemoFixtures.profitAndLoss.utf8))
+        let chart = try XCTUnwrap(result.chart)
+        XCTAssertEqual(chart.type, "bar")
+        XCTAssertEqual(chart.labels.count, 4)
+        XCTAssertEqual(chart.datasets.map(\.name), ["Income", "Expense"])
+        XCTAssertEqual(chart.datasets[0].values[3], 268790.0)
+    }
+
+    func testDemoReportsCatalog() async throws {
+        let reports = try await DemoDataSource().reports()
+        XCTAssertEqual(reports.count, 5)
+        XCTAssertEqual(reports.first?.module, "Accounts")
     }
 }
 

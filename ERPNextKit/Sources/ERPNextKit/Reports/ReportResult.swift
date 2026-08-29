@@ -99,11 +99,44 @@ public struct ReportSummaryItem: Sendable, Hashable, Identifiable, Codable {
     }
 }
 
+/// A report's chart payload (Frappe Charts config), normalized for native
+/// rendering with Swift Charts.
+public struct ReportChart: Sendable, Hashable, Codable {
+    public struct Dataset: Sendable, Hashable, Codable {
+        public var name: String?
+        public var values: [Double]
+    }
+
+    /// "bar", "line", "percentage", "pie", …
+    public var type: String
+    public var labels: [String]
+    public var datasets: [Dataset]
+
+    init?(value: FrappeValue?) {
+        guard let dict = value?.objectValue,
+            let data = dict["data"]?.objectValue,
+            let labels = data["labels"]?.arrayValue
+        else { return nil }
+        self.type = dict["type"]?.nonEmptyString ?? "bar"
+        self.labels = labels.compactMap { $0.stringValue }
+        self.datasets = (data["datasets"]?.arrayValue ?? []).compactMap { entry in
+            guard let dataset = entry.objectValue,
+                let values = dataset["values"]?.arrayValue
+            else { return nil }
+            return Dataset(
+                name: dataset["name"]?.nonEmptyString,
+                values: values.map { $0.doubleValue ?? 0 })
+        }
+        guard !self.labels.isEmpty, !self.datasets.isEmpty else { return nil }
+    }
+}
+
 /// The normalized output of `frappe.desk.query_report.run`.
 public struct ReportResult: Sendable, Hashable, Codable {
     public var columns: [ReportColumn]
     public var rows: [ReportRow]
     public var summary: [ReportSummaryItem]
+    public var chart: ReportChart?
 
     public var visibleColumns: [ReportColumn] { columns.filter { !$0.hidden } }
 
@@ -150,7 +183,9 @@ public struct ReportResult: Sendable, Hashable, Codable {
         let summary = (payload["report_summary"]?.arrayValue ?? [])
             .compactMap(ReportSummaryItem.init(value:))
 
-        return ReportResult(columns: columns, rows: rows, summary: summary)
+        return ReportResult(
+            columns: columns, rows: rows, summary: summary,
+            chart: ReportChart(value: payload["chart"]))
     }
 }
 
