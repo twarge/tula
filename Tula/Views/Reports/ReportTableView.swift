@@ -5,9 +5,34 @@ import SwiftUI
 /// column types drive formatting/alignment, `indent` drives the account tree,
 /// group rows embolden, and Frappe's quoted `'Total …'` rows get total
 /// styling. No report-specific code — P&L, Balance Sheet, GL all land here.
+/// The full report body — summary tiles, native chart, hierarchical grid —
+/// shared by the financial-statement and generic report screens.
+struct ReportResultView: View {
+    let result: ReportResult
+    let fallbackCurrency: String?
+    var drillRoute: ((ReportRow) -> Route?)? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !result.summary.isEmpty {
+                SummaryTilesView(items: result.summary)
+                Divider()
+            }
+            if let chart = result.chart {
+                ReportChartView(chart: chart)
+                Divider()
+            }
+            ReportTableView(
+                result: result, fallbackCurrency: fallbackCurrency, drillRoute: drillRoute)
+        }
+    }
+}
+
 struct ReportTableView: View {
     let result: ReportResult
     let fallbackCurrency: String?
+    /// When provided, first-column cells navigate (P&L account → GL).
+    var drillRoute: ((ReportRow) -> Route?)? = nil
 
     private var columns: [ReportColumn] { result.visibleColumns }
 
@@ -102,8 +127,18 @@ struct ReportTableView: View {
     @ViewBuilder
     private func cell(row: ReportRow, column: ReportColumn, isFirst: Bool) -> some View {
         if isFirst {
-            Text(firstCellText(row).text)
-                .lineLimit(1)
+            if let drillRoute, let route = drillRoute(row) {
+                NavigationLink(value: route) {
+                    Text(firstCellText(row).text)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open in General Ledger")
+            } else {
+                Text(firstCellText(row).text)
+                    .lineLimit(1)
+            }
         } else {
             FieldValueView(
                 fieldname: column.fieldname,

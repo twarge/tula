@@ -146,7 +146,7 @@ struct FilterChipLabel: View {
 /// A Link-field quick filter: tapping the chip opens a type-ahead search
 /// popover; each keystroke queries `search_link` (debounced), and picking a
 /// result applies the filter.
-private struct LinkFilterChip: View {
+struct LinkFilterChip: View {
     let field: DocField
     @Binding var value: String?
 
@@ -277,7 +277,7 @@ private struct LinkFilterChip: View {
 
 /// A free-text quick filter (ID, Title, Data-type standard filters): the
 /// chip opens a small text popover; the value applies as a `like` match.
-private struct TextFilterChip: View {
+struct TextFilterChip: View {
     let field: DocField
     @Binding var value: String?
 

@@ -20,6 +20,12 @@ struct RootView: View {
                     return .document(doctype: parts[0], name: parts[1])
                 }
             }
+            if raw == "reports" {
+                return .reportBrowser
+            }
+            if raw.hasPrefix("query:") {
+                return .queryReport(name: String(raw.dropFirst("query:".count)), extra: [:])
+            }
         }
         return .report(StandardReports.profitAndLoss)
     }
@@ -61,14 +67,27 @@ struct RouteView: View {
     var body: some View {
         // .id keeps per-screen @State (search text, quick filters, tab) from
         // leaking across sidebar selections, which reuse the same view slot.
-        switch route {
-        case .report(let descriptor):
-            ReportScreen(descriptor: descriptor).id(descriptor.name)
-        case .doctypeList(let doctype):
-            ListScreen(doctype: doctype).id(doctype)
-        case .document(let doctype, let name):
-            DocumentScreen(doctype: doctype, name: name).id("\(doctype)/\(name)")
+        Group {
+            switch route {
+            case .report(let descriptor):
+                ReportScreen(descriptor: descriptor)
+            case .queryReport(let name, let extra):
+                if let descriptor = StandardReports.financialStatements.first(where: {
+                    $0.name == name
+                }) {
+                    ReportScreen(descriptor: descriptor, extra: extra)
+                } else {
+                    GenericReportScreen(reportName: name, extra: extra)
+                }
+            case .reportBrowser:
+                ReportBrowserScreen()
+            case .doctypeList(let doctype):
+                ListScreen(doctype: doctype)
+            case .document(let doctype, let name):
+                DocumentScreen(doctype: doctype, name: name)
+            }
         }
+        .id(route.stableID)
     }
 }
 
@@ -84,6 +103,10 @@ struct SidebarView: View {
                     Label(descriptor.title, systemImage: descriptor.systemImage)
                         .tag(Route.report(descriptor))
                 }
+            }
+            Section("Reports") {
+                Label("All Reports", systemImage: "doc.text.magnifyingglass")
+                    .tag(Route.reportBrowser)
             }
             Section("Browse") {
                 ForEach(model.browseDoctypes, id: \.self) { doctype in

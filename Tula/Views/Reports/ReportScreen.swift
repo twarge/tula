@@ -6,6 +6,9 @@ import SwiftUI
 /// other server report routed here) uses this one screen.
 struct ReportScreen: View {
     let descriptor: ReportDescriptor
+    /// Pinned filters carried by drill-down routes; merged over the filter
+    /// bar's values, so e.g. GL arrives scoped to one account.
+    var extra: [String: FrappeValue] = [:]
 
     @Environment(AppModel.self) private var model
     @State private var state: LoadState<ReportResult> = .loading
@@ -16,7 +19,14 @@ struct ReportScreen: View {
         var generation: Int
         var filters: FinancialFilterState
         var report: String
+        var extraKey: String
         var token: Int
+    }
+
+    private var extraKey: String {
+        extra.keys.sorted().map { key in
+            "\(key)=\((try? extra[key]?.encodedJSONString()) ?? "")"
+        }.joined(separator: "&")
     }
 
     var body: some View {
@@ -36,6 +46,7 @@ struct ReportScreen: View {
                 generation: model.sourceGeneration,
                 filters: model.filterState,
                 report: descriptor.name,
+                extraKey: extraKey,
                 token: refreshToken)
         ) {
             // Restore from the session cache, else the disk snapshot — the
@@ -59,7 +70,7 @@ struct ReportScreen: View {
         let filters = model.filterState
         return "report|\(model.sourceGeneration)|\(descriptor.name)|"
             + "\(filters.company?.name ?? "-")|\(filters.fiscalYear?.name ?? "-")|"
-            + "\(filters.periodicity.rawValue)"
+            + "\(filters.periodicity.rawValue)|\(extraKey)"
     }
 
     @ViewBuilder
@@ -76,16 +87,33 @@ struct ReportScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let result):
-            VStack(spacing: 0) {
-                if !result.summary.isEmpty {
-                    SummaryTilesView(items: result.summary)
-                    Divider()
-                }
-                ReportTableView(
-                    result: result,
-                    fallbackCurrency: model.fallbackCurrencyCode)
-            }
+            ReportResultView(
+                result: result,
+                fallbackCurrency: model.fallbackCurrencyCode,
+                drillRoute: drillRoute(for:))
         }
+    }
+
+    /// P&L / Balance Sheet / Cash Flow account rows drill into the General
+    /// Ledger for that account over the selected period — Desk's core
+    /// accountant motion.
+    private func drillRoute(for row: ReportRow) -> Route? {
+        guard case .financialStatement = descriptor.filterStyle else { return nil }
+        guard let account = row.values["account"]?.nonEmptyString,
+            !account.isQuotedTotalLabel
+        else { return nil }
+        var extra: [String: FrappeValue] = [
+            "account": .array([.string(account)]),
+            "group_by": .string("Group by Voucher (Consolidated)"),
+        ]
+        if let company = model.filterState.company {
+            extra["company"] = .string(company.name)
+        }
+        if let fiscalYear = model.filterState.fiscalYear {
+            extra["from_date"] = .string(fiscalYear.startDate)
+            extra["to_date"] = .string(fiscalYear.endDate)
+        }
+        return .queryReport(name: StandardReports.generalLedger.name, extra: extra)
     }
 
     private func load() async {
@@ -98,7 +126,10 @@ struct ReportScreen: View {
             return
         }
         do {
-            let filters = descriptor.filters(for: model.filterState)
+            var filters = descriptor.filters(for: model.filterState)
+            for (key, value) in extra {
+                filters[key] = value
+            }
             let result = try await model.dataSource.runReport(descriptor.name, filters: filters)
             state = .loaded(result)
             lastUpdated = Date()

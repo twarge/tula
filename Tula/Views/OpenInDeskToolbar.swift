@@ -28,6 +28,10 @@ struct OpenInDeskToolbar: ToolbarContent {
         switch route {
         case .report(let descriptor):
             return DeskURL.queryReport(base: base, reportName: descriptor.name)
+        case .queryReport(let name, _):
+            return DeskURL.queryReport(base: base, reportName: name)
+        case .reportBrowser:
+            return DeskURL.list(base: base, doctype: "Report")
         case .doctypeList(let doctype):
             return DeskURL.list(base: base, doctype: doctype)
         case .document(let doctype, let name):
