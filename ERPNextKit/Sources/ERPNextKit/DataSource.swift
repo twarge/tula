@@ -75,6 +75,8 @@ public protocol DataSource: Sendable {
     func workspaces() async throws -> [WorkspaceInfo]
     /// Frappe global search ("awesomebar") hits.
     func globalSearch(query: String) async throws -> [GlobalSearchHit]
+    /// Raw bytes of a server-stored file (attachment paths only).
+    func fileData(path: String) async throws -> Data
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -110,6 +112,10 @@ extension DataSource {
 
     public func globalSearch(query: String) async throws -> [GlobalSearchHit] {
         []
+    }
+
+    public func fileData(path: String) async throws -> Data {
+        throw ERPNextError(message: "Files aren't available for this data source.")
     }
 
     public func reportScript(name: String) async throws -> String? {
@@ -246,6 +252,10 @@ public struct LiveDataSource: DataSource {
                 refDoctype: doc["ref_doctype"]?.nonEmptyString,
                 module: doc["module"]?.nonEmptyString)
         }
+    }
+
+    public func fileData(path: String) async throws -> Data {
+        try await client.data(for: .file(path: path))
     }
 
     public func workspaces() async throws -> [WorkspaceInfo] {

@@ -66,6 +66,9 @@ public enum Endpoint: Sendable {
         orderBy: String?, limitStart: Int, limitPageLength: Int)
     case resource(doctype: String, name: String)
     case method(ReadMethod, parameters: [String: String])
+    /// A server-stored file (attachments). Restricted to Frappe's file
+    /// roots so the transport stays enumerable.
+    case file(path: String)
 
     func url(relativeTo base: URL) throws -> URL {
         var path: String
@@ -99,6 +102,13 @@ public enum Endpoint: Sendable {
             for (name, value) in parameters.sorted(by: { $0.key < $1.key }) {
                 query.append(URLQueryItem(name: name, value: value))
             }
+
+        case .file(let filePath):
+            guard filePath.hasPrefix("/files/") || filePath.hasPrefix("/private/files/")
+            else {
+                throw ERPNextError(message: "Unsupported file path")
+            }
+            path = filePath
         }
 
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {

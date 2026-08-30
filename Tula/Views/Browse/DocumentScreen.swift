@@ -18,6 +18,7 @@ struct DocumentScreen: View {
         var childMetas: [String: DocTypeMeta]
         var gridColumns: [String: [GridColumn]]
         var document: Document
+        var periphery: DocumentPeriphery
     }
 
     var body: some View {
@@ -34,12 +35,18 @@ struct DocumentScreen: View {
                 }
             case .loaded(let loaded):
                 ScrollView {
-                    DocumentFormView(
-                        meta: loaded.meta, childMetas: loaded.childMetas,
-                        document: loaded.document, gridColumns: loaded.gridColumns)
-                        .padding()
-                        .frame(maxWidth: 900, alignment: .leading)
-                        .frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 16) {
+                        PeripheryHeaderView(
+                            periphery: loaded.periphery, documentName: name)
+                        DocumentFormView(
+                            meta: loaded.meta, childMetas: loaded.childMetas,
+                            document: loaded.document, gridColumns: loaded.gridColumns)
+                        PeripheryTrailingSections(
+                            periphery: loaded.periphery, documentName: name)
+                    }
+                    .padding()
+                    .frame(maxWidth: 900, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
                 .refreshable { await load() }
             }
@@ -86,9 +93,12 @@ struct DocumentScreen: View {
             let document = try await model.dataSource.document(doctype, name: name)
             let childMetas = Dictionary(
                 uniqueKeysWithValues: bundle.metas.dropFirst().map { ($0.name, $0) })
+            let periphery = await DocumentPeriphery.load(
+                doctype: doctype, name: name, meta: meta, document: document,
+                using: model.dataSource)
             let loaded = Loaded(
                 meta: meta, childMetas: childMetas, gridColumns: bundle.gridColumns,
-                document: document)
+                document: document, periphery: periphery)
             state = .loaded(loaded)
             lastUpdated = Date()
             model.cache.setScreen(cacheKey, loaded)

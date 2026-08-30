@@ -56,6 +56,13 @@ public struct DocField: Sendable, Hashable, Identifiable {
     }
 }
 
+/// One entry of a DocType's Connections tab (`links` in the metadata).
+public struct DocTypeLink: Sendable, Hashable {
+    public let doctype: String
+    public let fieldname: String
+    public let group: String?
+}
+
 /// A DocType's metadata: the schema that drives every generic renderer.
 public struct DocTypeMeta: Sendable, Hashable {
     public let raw: [String: FrappeValue]
@@ -75,6 +82,22 @@ public struct DocTypeMeta: Sendable, Hashable {
     public var titleField: String? { raw["title_field"]?.nonEmptyString }
     /// Nested-set tree DocType (Account, Cost Center, Item Group, …).
     public var isTree: Bool { raw["is_tree"]?.boolValue ?? false }
+    /// Submittable documents carry docstatus (draft/submitted/cancelled).
+    public var isSubmittable: Bool { raw["is_submittable"]?.boolValue ?? false }
+
+    /// Desk's Connections tab: DocTypes linking back to this one.
+    public var connectionLinks: [DocTypeLink] {
+        raw["links"]?.arrayValue?.compactMap { entry in
+            guard let dict = entry.objectValue,
+                let doctype = dict["link_doctype"]?.nonEmptyString,
+                let fieldname = dict["link_fieldname"]?.nonEmptyString,
+                dict["hidden"]?.boolValue != true
+            else { return nil }
+            return DocTypeLink(
+                doctype: doctype, fieldname: fieldname,
+                group: dict["group"]?.nonEmptyString)
+        } ?? []
+    }
 
     /// Default list sort. `sort_field` occasionally carries a comma list
     /// ("posting_date, creation"); the first component is the primary sort.

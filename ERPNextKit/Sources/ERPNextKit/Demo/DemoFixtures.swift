@@ -194,6 +194,7 @@ enum DemoFixtures {
               "name": "Sales Invoice",
               "istable": 0,
               "issingle": 0,
+              "is_submittable": 1,
               "title_field": "customer_name",
               "fields": [
                 {"fieldname": "details_tab", "label": "Details", "fieldtype": "Tab Break"},
@@ -260,6 +261,9 @@ enum DemoFixtures {
           "data": [
             {
               "name": "ACC-SINV-2025-00042",
+              "docstatus": 1,
+              "_assign": "[\"tom@twarge.com\"]",
+              "_user_tags": ",wholesale,priority",
               "customer": "Northwind Research",
               "customer_name": "Northwind Research",
               "posting_date": "2025-07-18",
