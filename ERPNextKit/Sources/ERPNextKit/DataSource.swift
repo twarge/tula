@@ -1,5 +1,35 @@
 import Foundation
 
+/// A public Desk workspace (sidebar module page).
+public struct WorkspaceInfo: Sendable, Hashable, Identifiable {
+    public var name: String
+    public var title: String
+    public var icon: String?
+
+    public init(name: String, title: String, icon: String? = nil) {
+        self.name = name
+        self.title = title
+        self.icon = icon
+    }
+
+    public var id: String { name }
+}
+
+/// One hit from Frappe's global search.
+public struct GlobalSearchHit: Sendable, Hashable, Identifiable {
+    public var doctype: String
+    public var name: String
+    public var content: String?
+
+    public init(doctype: String, name: String, content: String? = nil) {
+        self.doctype = doctype
+        self.name = name
+        self.content = content
+    }
+
+    public var id: String { "\(doctype)/\(name)" }
+}
+
 /// One result of a link-field autocomplete (`frappe.desk.search.search_link`).
 public struct LinkOption: Sendable, Hashable, Identifiable {
     public var value: String
@@ -41,6 +71,10 @@ public protocol DataSource: Sendable {
     func count(_ doctype: String, filters: [ListFilter]) async throws -> Int?
     /// The server's Query/Script reports (the Report DocType).
     func reports() async throws -> [ReportInfo]
+    /// Public Desk workspaces, in sidebar order.
+    func workspaces() async throws -> [WorkspaceInfo]
+    /// Frappe global search ("awesomebar") hits.
+    func globalSearch(query: String) async throws -> [GlobalSearchHit]
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -67,6 +101,14 @@ extension DataSource {
     }
 
     public func reports() async throws -> [ReportInfo] {
+        []
+    }
+
+    public func workspaces() async throws -> [WorkspaceInfo] {
+        []
+    }
+
+    public func globalSearch(query: String) async throws -> [GlobalSearchHit] {
         []
     }
 
@@ -203,6 +245,38 @@ public struct LiveDataSource: DataSource {
                 reportType: doc["report_type"]?.nonEmptyString ?? "Script Report",
                 refDoctype: doc["ref_doctype"]?.nonEmptyString,
                 module: doc["module"]?.nonEmptyString)
+        }
+    }
+
+    public func workspaces() async throws -> [WorkspaceInfo] {
+        let data = try await client.data(
+            for: .resourceList(
+                doctype: "Workspace",
+                fields: ["name", "title", "icon"],
+                filters: [ListFilter("public", "=", .int(1))],
+                orderBy: "sequence_id asc", limitStart: 0, limitPageLength: 100))
+        return try Document.list(from: data).map { doc in
+            WorkspaceInfo(
+                name: doc.name,
+                title: doc["title"]?.nonEmptyString ?? doc.name,
+                icon: doc["icon"]?.nonEmptyString)
+        }
+    }
+
+    public func globalSearch(query: String) async throws -> [GlobalSearchHit] {
+        let data = try await client.data(
+            for: .method(
+                .globalSearch, parameters: ["text": query, "limit": "20"]))
+        guard let root = try FrappeValue.decode(from: data).objectValue else { return [] }
+        let hits = root["message"]?.arrayValue ?? root["results"]?.arrayValue ?? []
+        return hits.compactMap { hit in
+            guard let dict = hit.objectValue,
+                let doctype = dict["doctype"]?.nonEmptyString,
+                let name = dict["name"]?.nonEmptyString
+            else { return nil }
+            return GlobalSearchHit(
+                doctype: doctype, name: name,
+                content: dict["content"]?.nonEmptyString?.strippingSimpleHTML())
         }
     }
 

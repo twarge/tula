@@ -116,6 +116,25 @@ public struct DemoDataSource: DataSource {
         }
     }
 
+    public func globalSearch(query: String) async throws -> [GlobalSearchHit] {
+        guard !query.isEmpty else { return [] }
+        var hits: [GlobalSearchHit] = []
+        let invoices = try Document.list(from: Data(DemoFixtures.salesInvoiceList.utf8))
+        for doc in invoices
+        where doc.name.localizedCaseInsensitiveContains(query)
+            || (doc["customer_name"]?.stringValue ?? "").localizedCaseInsensitiveContains(query) {
+            hits.append(
+                GlobalSearchHit(
+                    doctype: "Sales Invoice", name: doc.name,
+                    content: doc["customer_name"]?.nonEmptyString))
+        }
+        let accounts = try Document.list(from: Data(DemoFixtures.accountList.utf8))
+        for doc in accounts where doc.name.localizedCaseInsensitiveContains(query) {
+            hits.append(GlobalSearchHit(doctype: "Account", name: doc.name))
+        }
+        return hits
+    }
+
     public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
         guard doctype == "Customer" else { return [] }
         let customers = ["Grant Plastics Ltd.", "Northwind Research", "Zany Brainy"]

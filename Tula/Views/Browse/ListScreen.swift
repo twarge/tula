@@ -8,6 +8,13 @@ import SwiftUI
 /// session cache and refresh silently (ARCHITECTURE.md §11).
 struct ListScreen: View {
     let doctype: String
+    var initialFilters: [String: String] = [:]
+
+    init(doctype: String, initialFilters: [String: String] = [:]) {
+        self.doctype = doctype
+        self.initialFilters = initialFilters
+        _quickFilters = State(initialValue: initialFilters)
+    }
 
     @Environment(AppModel.self) private var model
     @State private var state: LoadState<Loaded> = .loading

@@ -459,6 +459,17 @@ final class SortCountAndSnapshotTests: XCTestCase {
         XCTAssertEqual(chart.datasets[0].values[3], 268790.0)
     }
 
+    func testDemoGlobalSearch() async throws {
+        let demo = DemoDataSource()
+        let hits = try await demo.globalSearch(query: "northwind")
+        XCTAssertEqual(hits.count, 2)
+        XCTAssertEqual(hits.first?.doctype, "Sales Invoice")
+        let accounts = try await demo.globalSearch(query: "rent")
+        XCTAssertEqual(accounts.map(\.name), ["Rent - WPL"])
+        let empty = try await demo.globalSearch(query: "")
+        XCTAssertTrue(empty.isEmpty)
+    }
+
     func testDemoReportsCatalog() async throws {
         let reports = try await DemoDataSource().reports()
         XCTAssertEqual(reports.count, 5)

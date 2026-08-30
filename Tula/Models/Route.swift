@@ -15,7 +15,11 @@ enum Route: Hashable {
     /// descriptor screen; everything else gets parsed filters.
     case queryReport(name: String, extra: [String: FrappeValue])
     case reportBrowser
+    case workspace(String)
     case doctypeList(String)
+    case tree(String)
+    /// A DocType list pre-filtered by one field (Connections tab routes).
+    case linkedList(doctype: String, fieldname: String, value: String)
     case document(doctype: String, name: String)
 
     /// Deterministic identity for `.id()` — keeps per-screen @State scoped
@@ -31,8 +35,14 @@ enum Route: Hashable {
             return "query|\(name)|\(extraKey)"
         case .reportBrowser:
             return "reportBrowser"
+        case .workspace(let name):
+            return "workspace|\(name)"
         case .doctypeList(let doctype):
             return "list|\(doctype)"
+        case .tree(let doctype):
+            return "tree|\(doctype)"
+        case .linkedList(let doctype, let fieldname, let value):
+            return "linked|\(doctype)|\(fieldname)|\(value)"
         case .document(let doctype, let name):
             return "doc|\(doctype)|\(name)"
         }

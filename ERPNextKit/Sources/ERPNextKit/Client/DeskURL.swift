@@ -19,6 +19,16 @@ public enum DeskURL {
         list(base: base, doctype: doctype).appending(component: name)
     }
 
+    /// `{base}/app/{doctype-slug}/view/tree` — the tree view.
+    public static func tree(base: URL, doctype: String) -> URL {
+        list(base: base, doctype: doctype).appending(path: "view/tree")
+    }
+
+    /// `{base}/app/{workspace-slug}` — a workspace page.
+    public static func workspace(base: URL, name: String) -> URL {
+        base.appending(path: "app").appending(component: slug(name))
+    }
+
     /// `{base}/app/query-report/{Report Name}` — a query/script report.
     public static func queryReport(base: URL, reportName: String) -> URL {
         base.appending(path: "app/query-report").appending(component: reportName)

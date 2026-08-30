@@ -23,6 +23,9 @@ struct RootView: View {
             if raw == "reports" {
                 return .reportBrowser
             }
+            if raw.hasPrefix("tree:") {
+                return .tree(String(raw.dropFirst("tree:".count)))
+            }
             if raw.hasPrefix("query:") {
                 return .queryReport(name: String(raw.dropFirst("query:".count)), extra: [:])
             }
@@ -31,6 +34,7 @@ struct RootView: View {
     }
     @State private var path = NavigationPath()
     @State private var showingSettings = false
+    @State private var showingOmnibar = false
 
     var body: some View {
         NavigationSplitView {
@@ -55,6 +59,23 @@ struct RootView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showingOmnibar) {
+            OmnibarView { route in
+                showingOmnibar = false
+                path.append(route)
+            }
+        }
+        .background(
+            // Global search shortcut (macOS + hardware keyboards).
+            Button("") { showingOmnibar = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .hidden()
+        )
+        .onAppear {
+            if ProcessInfo.processInfo.environment["TULA_OMNIBAR"] == "1" {
+                showingOmnibar = true
+            }
         }
     }
 }
@@ -81,8 +102,14 @@ struct RouteView: View {
                 }
             case .reportBrowser:
                 ReportBrowserScreen()
+            case .workspace(let name):
+                WorkspaceScreen(workspaceName: name)
             case .doctypeList(let doctype):
                 ListScreen(doctype: doctype)
+            case .tree(let doctype):
+                TreeScreen(doctype: doctype)
+            case .linkedList(let doctype, let fieldname, let value):
+                ListScreen(doctype: doctype, initialFilters: [fieldname: value])
             case .document(let doctype, let name):
                 DocumentScreen(doctype: doctype, name: name)
             }
@@ -108,16 +135,50 @@ struct SidebarView: View {
                 Label("All Reports", systemImage: "doc.text.magnifyingglass")
                     .tag(Route.reportBrowser)
             }
+            if !model.workspaces.isEmpty {
+                Section("Workspaces") {
+                    ForEach(model.workspaces) { workspace in
+                        Label(workspace.title, systemImage: workspaceSymbol(workspace.icon))
+                            .tag(Route.workspace(workspace.name))
+                    }
+                }
+            }
             Section("Browse") {
                 ForEach(model.browseDoctypes, id: \.self) { doctype in
                     Label(doctype, systemImage: "doc.text")
-                        .tag(Route.doctypeList(doctype))
+                        .tag(doctype == "Account" ? Route.tree(doctype) : Route.doctypeList(doctype))
                 }
             }
         }
         .navigationTitle("Tula")
         .safeAreaInset(edge: .bottom) {
             connectionFooter
+        }
+    }
+
+    /// Desk workspace icon names → SF Symbols.
+    private func workspaceSymbol(_ icon: String?) -> String {
+        switch icon {
+        case "accounting": return "dollarsign.circle"
+        case "buying": return "cart"
+        case "sell", "selling": return "tag"
+        case "stock": return "shippingbox"
+        case "hr", "users": return "person.2"
+        case "organization": return "building.2"
+        case "manufacturing": return "gearshape.2"
+        case "project", "projects": return "list.clipboard"
+        case "crm": return "person.crop.circle.badge.checkmark"
+        case "support": return "lifepreserver"
+        case "asset", "assets": return "building.columns"
+        case "quality": return "checkmark.seal"
+        case "website": return "globe"
+        case "tool", "tools": return "wrench.and.screwdriver"
+        case "home": return "house"
+        case "integration", "integrations": return "puzzlepiece.extension"
+        case "setting", "settings": return "gearshape"
+        case "file": return "folder"
+        case "money-coins-1", "loan": return "banknote"
+        default: return "square.grid.2x2"
         }
     }
 

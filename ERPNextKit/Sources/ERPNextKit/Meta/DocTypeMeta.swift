@@ -73,6 +73,8 @@ public struct DocTypeMeta: Sendable, Hashable {
     public var isTable: Bool { raw["istable"]?.boolValue ?? false }
     public var isSingle: Bool { raw["issingle"]?.boolValue ?? false }
     public var titleField: String? { raw["title_field"]?.nonEmptyString }
+    /// Nested-set tree DocType (Account, Cost Center, Item Group, …).
+    public var isTree: Bool { raw["is_tree"]?.boolValue ?? false }
 
     /// Default list sort. `sort_field` occasionally carries a comma list
     /// ("posting_date, creation"); the first component is the primary sort.

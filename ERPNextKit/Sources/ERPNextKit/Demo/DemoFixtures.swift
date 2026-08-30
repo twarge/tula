@@ -120,6 +120,7 @@ enum DemoFixtures {
               "name": "Account",
               "istable": 0,
               "issingle": 0,
+              "is_tree": 1,
               "title_field": "account_name",
               "fields": [
                 {"fieldname": "account_name", "label": "Account Name", "fieldtype": "Data", "reqd": 1, "in_list_view": 1, "bold": 1},
@@ -148,16 +149,22 @@ enum DemoFixtures {
     static let accountList = #"""
         {
           "data": [
-            {"name": "Sales - WPL", "account_name": "Sales", "account_number": "4110", "root_type": "Income"},
-            {"name": "Service - WPL", "account_name": "Service", "account_number": "4120", "root_type": "Income"},
-            {"name": "Cost of Goods Sold - WPL", "account_name": "Cost of Goods Sold", "account_number": "5111", "root_type": "Expense"},
-            {"name": "Salaries and Wages - WPL", "account_name": "Salaries and Wages", "account_number": "5211", "root_type": "Expense"},
-            {"name": "Rent - WPL", "account_name": "Rent", "account_number": "5226", "root_type": "Expense"},
-            {"name": "Utilities - WPL", "account_name": "Utilities", "account_number": "5230", "root_type": "Expense"},
-            {"name": "Marketing - WPL", "account_name": "Marketing", "account_number": "5232", "root_type": "Expense"},
-            {"name": "Bank Accounts - WPL", "account_name": "Bank Accounts", "account_number": "1110", "root_type": "Asset"},
-            {"name": "Accounts Receivable - WPL", "account_name": "Accounts Receivable", "account_number": "1310", "root_type": "Asset"},
-            {"name": "Accounts Payable - WPL", "account_name": "Accounts Payable", "account_number": "2110", "root_type": "Liability"}
+            {"name": "Income - WPL", "account_name": "Income", "root_type": "Income", "is_group": 1, "parent_account": "", "lft": 1},
+            {"name": "Direct Income - WPL", "account_name": "Direct Income", "root_type": "Income", "is_group": 1, "parent_account": "Income - WPL", "lft": 2},
+            {"name": "Sales - WPL", "account_name": "Sales", "account_number": "4110", "root_type": "Income", "is_group": 0, "parent_account": "Direct Income - WPL", "lft": 3},
+            {"name": "Service - WPL", "account_name": "Service", "account_number": "4120", "root_type": "Income", "is_group": 0, "parent_account": "Direct Income - WPL", "lft": 5},
+            {"name": "Expenses - WPL", "account_name": "Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "", "lft": 10},
+            {"name": "Direct Expenses - WPL", "account_name": "Direct Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "Expenses - WPL", "lft": 11},
+            {"name": "Cost of Goods Sold - WPL", "account_name": "Cost of Goods Sold", "account_number": "5111", "root_type": "Expense", "is_group": 0, "parent_account": "Direct Expenses - WPL", "lft": 12},
+            {"name": "Indirect Expenses - WPL", "account_name": "Indirect Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "Expenses - WPL", "lft": 14},
+            {"name": "Salaries and Wages - WPL", "account_name": "Salaries and Wages", "account_number": "5211", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 15},
+            {"name": "Rent - WPL", "account_name": "Rent", "account_number": "5226", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 17},
+            {"name": "Utilities - WPL", "account_name": "Utilities", "account_number": "5230", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 19},
+            {"name": "Marketing - WPL", "account_name": "Marketing", "account_number": "5232", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 21},
+            {"name": "Application of Funds (Assets) - WPL", "account_name": "Application of Funds (Assets)", "root_type": "Asset", "is_group": 1, "parent_account": "", "lft": 30},
+            {"name": "Bank Accounts - WPL", "account_name": "Bank Accounts", "account_number": "1110", "root_type": "Asset", "is_group": 0, "parent_account": "Application of Funds (Assets) - WPL", "lft": 31},
+            {"name": "Accounts Receivable - WPL", "account_name": "Accounts Receivable", "account_number": "1310", "root_type": "Asset", "is_group": 0, "parent_account": "Application of Funds (Assets) - WPL", "lft": 33},
+            {"name": "Accounts Payable - WPL", "account_name": "Accounts Payable", "account_number": "2110", "root_type": "Liability", "is_group": 0, "parent_account": "", "lft": 40}
           ]
         }
         """#

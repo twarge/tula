@@ -25,6 +25,7 @@ final class AppModel {
     var filterState = FinancialFilterState()
     private(set) var companies: [Company] = []
     private(set) var fiscalYears: [FiscalYear] = []
+    private(set) var workspaces: [WorkspaceInfo] = []
     private(set) var filterOptionsError: String?
     private var filterOptionsLoadedForGeneration = -1
 
@@ -66,6 +67,7 @@ final class AppModel {
         cache.removeAll()
         companies = []
         fiscalYears = []
+        workspaces = []
         filterState = FinancialFilterState()
         filterOptionsError = nil
         filterOptionsLoadedForGeneration = -1
@@ -95,6 +97,7 @@ final class AppModel {
             let fiscalYears = try await dataSource.fiscalYears()
             self.companies = companies
             self.fiscalYears = fiscalYears
+            self.workspaces = (try? await dataSource.workspaces()) ?? []
             filterOptionsError = nil
             if filterState.company == nil { filterState.company = companies.first }
             if filterState.fiscalYear == nil { filterState.fiscalYear = fiscalYears.first }
