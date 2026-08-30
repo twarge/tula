@@ -35,7 +35,10 @@ struct DocumentScreen: View {
                 }
             case .loaded(let loaded):
                 VStack(spacing: 0) {
-                    PeripheryBar(periphery: loaded.periphery, documentName: name)
+                    PeripheryBar(
+                        periphery: loaded.periphery, documentName: name,
+                        actions: DocumentAction.actions(
+                            doctype: doctype, name: name, webBase: model.webBaseURL))
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             DocumentFormView(

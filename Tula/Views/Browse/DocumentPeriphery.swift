@@ -211,13 +211,38 @@ struct DocumentPeriphery: Sendable {
 struct PeripheryBar: View {
     let periphery: DocumentPeriphery
     let documentName: String
+    var actions: [DocumentAction] = []
 
     @Environment(AppModel.self) private var model
     @State private var previewURL: URL?
     @State private var downloadError: String?
 
     var body: some View {
-        if periphery.hasBarContent {
+        if periphery.hasBarContent || !actions.isEmpty {
+            HStack(spacing: 8) {
+                DocumentActionsCluster(actions: actions)
+                    .layoutPriority(1)
+                if !actions.isEmpty && periphery.hasBarContent {
+                    Divider().frame(height: 16)
+                }
+                chipsScroller
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .quickLookPreview($previewURL)
+            .overlay(alignment: .bottomLeading) {
+                if let downloadError {
+                    Text(downloadError)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .padding(.leading, 12)
+                }
+            }
+        }
+    }
+
+    private var chipsScroller: some View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     if periphery.isSubmittable, let docstatus = periphery.docstatus {
@@ -244,20 +269,7 @@ struct PeripheryBar: View {
                         .textSelection(.enabled)
                         .padding(.leading, 4)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             }
-            .background(.bar)
-            .quickLookPreview($previewURL)
-            .overlay(alignment: .bottomLeading) {
-                if let downloadError {
-                    Text(downloadError)
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .padding(.leading, 12)
-                }
-            }
-        }
     }
 
     private func chip(label: String, systemImage: String) -> some View {
