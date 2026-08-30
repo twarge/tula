@@ -125,6 +125,9 @@ public protocol DataSource: Sendable {
     func numberCardValue(cardName: String) async throws -> NumberCardValue?
     /// A Desk Dashboard Chart's series data.
     func dashboardChart(name: String) async throws -> DashboardChartData?
+    /// Linked-document counts for a document's dashboard, keyed by DocType
+    /// (Desk's batched get_open_count).
+    func openCounts(doctype: String, name: String) async throws -> [String: Int]?
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -171,6 +174,10 @@ extension DataSource {
     }
 
     public func dashboardChart(name: String) async throws -> DashboardChartData? {
+        nil
+    }
+
+    public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {
         nil
     }
 
@@ -312,6 +319,23 @@ public struct LiveDataSource: DataSource {
 
     public func fileData(path: String) async throws -> Data {
         try await client.data(for: .file(path: path))
+    }
+
+    public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {
+        let data = try await client.data(
+            for: .method(.openCount, parameters: ["doctype": doctype, "name": name]))
+        guard let root = try FrappeValue.decode(from: data).objectValue,
+            let message = root["message"]?.objectValue,
+            let entries = message["count"]?.arrayValue
+        else { return nil }
+        var counts: [String: Int] = [:]
+        for entry in entries {
+            guard let dict = entry.objectValue,
+                let doctype = dict["name"]?.nonEmptyString
+            else { continue }
+            counts[doctype] = dict["count"]?.intValue ?? dict["open_count"]?.intValue ?? 0
+        }
+        return counts.isEmpty ? nil : counts
     }
 
     public func numberCardValue(cardName: String) async throws -> NumberCardValue? {

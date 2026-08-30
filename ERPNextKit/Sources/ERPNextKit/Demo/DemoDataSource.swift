@@ -55,6 +55,14 @@ public struct DemoDataSource: DataSource {
             docs = try Document.list(from: Data(DemoFixtures.accountList.utf8))
         case "Sales Invoice":
             docs = try Document.list(from: Data(DemoFixtures.salesInvoiceList.utf8))
+        case "Comment":
+            docs = try Document.list(from: Data(DemoFixtures.commentDocs.utf8))
+        case "Version":
+            docs = try Document.list(from: Data(DemoFixtures.versionDocs.utf8))
+        case "DocShare":
+            docs = try Document.list(from: Data(DemoFixtures.shareDocs.utf8))
+        case "File":
+            docs = try Document.list(from: Data(DemoFixtures.fileDocs.utf8))
         default:
             return []
         }
@@ -114,6 +122,13 @@ public struct DemoDataSource: DataSource {
                 name: $0.name, reportType: "Script Report", refDoctype: "GL Entry",
                 module: "Accounts")
         }
+    }
+
+    public func fileData(path: String) async throws -> Data {
+        guard path == "/files/PO-4451.txt" else {
+            throw ERPNextError(message: "No demo file at \(path)")
+        }
+        return Data("Purchase order PO-4451 — demo attachment for ACC-SINV-2025-00042.".utf8)
     }
 
     public func workspaces() async throws -> [WorkspaceInfo] {

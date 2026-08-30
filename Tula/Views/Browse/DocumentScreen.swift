@@ -34,21 +34,22 @@ struct DocumentScreen: View {
                     Text(message)
                 }
             case .loaded(let loaded):
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        PeripheryHeaderView(
-                            periphery: loaded.periphery, documentName: name)
-                        DocumentFormView(
-                            meta: loaded.meta, childMetas: loaded.childMetas,
-                            document: loaded.document, gridColumns: loaded.gridColumns)
-                        PeripheryTrailingSections(
-                            periphery: loaded.periphery, documentName: name)
+                VStack(spacing: 0) {
+                    PeripheryBar(periphery: loaded.periphery, documentName: name)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            DocumentFormView(
+                                meta: loaded.meta, childMetas: loaded.childMetas,
+                                document: loaded.document, gridColumns: loaded.gridColumns)
+                            PeripheryTrailingSections(
+                                periphery: loaded.periphery, documentName: name)
+                        }
+                        .padding()
+                        .frame(maxWidth: 900, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding()
-                    .frame(maxWidth: 900, alignment: .leading)
-                    .frame(maxWidth: .infinity)
+                    .refreshable { await load() }
                 }
-                .refreshable { await load() }
             }
         }
         .navigationTitle(title)

@@ -196,6 +196,10 @@ enum DemoFixtures {
               "issingle": 0,
               "is_submittable": 1,
               "title_field": "customer_name",
+              "links": [
+                {"link_doctype": "Payment Entry", "link_fieldname": "reference_name", "group": "Payments"},
+                {"link_doctype": "Delivery Note", "link_fieldname": "against_sales_invoice", "group": "Fulfilment"}
+              ],
               "fields": [
                 {"fieldname": "details_tab", "label": "Details", "fieldtype": "Tab Break"},
                 {"fieldname": "customer", "label": "Customer", "fieldtype": "Link", "options": "Customer", "reqd": 1, "in_standard_filter": 1},
@@ -272,6 +276,48 @@ enum DemoFixtures {
                 {"chart_name": "Income Trend", "label": "Income Trend"}
               ]
             }
+          ]
+        }
+        """#
+
+    static let commentDocs = #"""
+        {
+          "data": [
+            {"name": "cmt1", "reference_doctype": "Sales Invoice", "reference_name": "ACC-SINV-2025-00042",
+             "comment_type": "Comment", "comment_email": "molly@windpower.example",
+             "creation": "2025-07-20 10:12:00",
+             "content": "<p>Confirmed receipt with Northwind — payment cleared same week.</p>"}
+          ]
+        }
+        """#
+
+    static let versionDocs = #"""
+        {
+          "data": [
+            {"name": "v2", "ref_doctype": "Sales Invoice", "docname": "ACC-SINV-2025-00042",
+             "owner": "tom@twarge.com", "creation": "2025-08-18 09:30:00",
+             "data": "{\"changed\": [[\"status\", \"Unpaid\", \"Paid\"], [\"outstanding_amount\", 13807.5, 0]]}"},
+            {"name": "v1", "ref_doctype": "Sales Invoice", "docname": "ACC-SINV-2025-00042",
+             "owner": "molly@windpower.example", "creation": "2025-07-18 15:02:00",
+             "data": "{\"changed\": [[\"remarks\", null, \"Q3 restock order. Delivered in two shipments.\"]]}"}
+          ]
+        }
+        """#
+
+    static let shareDocs = #"""
+        {
+          "data": [
+            {"name": "shr1", "share_doctype": "Sales Invoice", "share_name": "ACC-SINV-2025-00042",
+             "user": "molly@windpower.example", "read": 1, "write": 0}
+          ]
+        }
+        """#
+
+    static let fileDocs = #"""
+        {
+          "data": [
+            {"name": "file1", "attached_to_doctype": "Sales Invoice", "attached_to_name": "ACC-SINV-2025-00042",
+             "file_name": "PO-4451.txt", "file_url": "/files/PO-4451.txt", "is_private": 1, "file_size": 512}
           ]
         }
         """#
