@@ -313,7 +313,7 @@ filter chips incl. synthesized ID/Title, type-ahead link filters, detailed filte
 search, count, infinite scroll); auto-refresh probes; three-tier caching with offline report
 snapshots; Open in Desk; demo mode; stable code signing.
 
-### Phase 3 — the report long tail (highest value next)
+### Phase 3 — the report long tail ✅ shipped Aug 2026
 
 Today only the five standard statements run; ERPNext ships hundreds of reports (AR/AP aging,
 stock, tax). All of them already work through the same `query_report.run` renderer — what's
@@ -330,7 +330,7 @@ missing is navigation and filters:
 4. **Report charts** — `query_report.run` already returns `chart` config; render with
    Swift Charts above the grid. (M)
 
-### Phase 4 — navigation & document breadth
+### Phase 4 — navigation & document breadth ✅ shipped Aug 2026 (items 5–9; attachments preview and workspaces verified against live servers only)
 
 5. **Workspaces as the sidebar** — read the `Workspace` DocType (links, shortcuts, cards)
    so the sidebar mirrors the server's own navigation; hardcoded Browse list becomes the
@@ -345,7 +345,7 @@ missing is navigation and filters:
    Connections tab counts → filtered-list routes; read-only comments/activity timeline
    (`_comment_count`, Comment/Version DocTypes); assignment/tag chips. (M–L)
 
-### Phase 5 — dashboards, polish, distribution
+### Phase 5 — dashboards, polish, distribution (next)
 
 10. **Dashboards** — Number Cards and Dashboard Charts via their whitelisted read methods
     + Swift Charts; workspace cards slot in from Phase 4. (L)
