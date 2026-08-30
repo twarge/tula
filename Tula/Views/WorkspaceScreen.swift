@@ -1,3 +1,4 @@
+import Charts
 import ERPNextKit
 import SwiftUI
 
@@ -27,6 +28,8 @@ struct WorkspaceScreen: View {
     struct Loaded {
         var shortcuts: [Entry]
         var cards: [Card]
+        var numberCards: [NumberCardValue]
+        var charts: [DashboardChartData]
     }
 
     var body: some View {
@@ -43,6 +46,41 @@ struct WorkspaceScreen: View {
                 }
             case .loaded(let loaded):
                 List {
+                    if !loaded.numberCards.isEmpty {
+                        Section {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(loaded.numberCards, id: \.label) { card in
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(card.label)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            Text(
+                                                card.value.doubleValue?.formatted(
+                                                    .number.precision(.fractionLength(0...2)))
+                                                    ?? (card.value.stringValue ?? "—"))
+                                                .font(.title3.weight(.semibold))
+                                                .monospacedDigit()
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            .quaternary.opacity(0.5),
+                                            in: RoundedRectangle(cornerRadius: 8))
+                                    }
+                                }
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        }
+                    }
+                    ForEach(loaded.charts) { chart in
+                        Section(chart.label) {
+                            WorkspaceChartView(chart: chart)
+                                .frame(height: 220)
+                                .padding(.vertical, 6)
+                        }
+                    }
                     if !loaded.shortcuts.isEmpty {
                         Section("Shortcuts") {
                             ForEach(loaded.shortcuts) { entry in
@@ -82,9 +120,31 @@ struct WorkspaceScreen: View {
         }
         do {
             let doc = try await model.dataSource.document("Workspace", name: workspaceName)
+
+            var numberCards: [NumberCardValue] = []
+            for row in (doc.raw["number_cards"]?.arrayValue ?? []).prefix(6) {
+                guard
+                    let cardName = row.objectValue?["number_card_name"]?.nonEmptyString
+                        ?? row.objectValue?["label"]?.nonEmptyString,
+                    let value = try? await model.dataSource.numberCardValue(cardName: cardName)
+                else { continue }
+                numberCards.append(value)
+            }
+            var charts: [DashboardChartData] = []
+            for row in (doc.raw["charts"]?.arrayValue ?? []).prefix(4) {
+                guard
+                    let chartName = row.objectValue?["chart_name"]?.nonEmptyString
+                        ?? row.objectValue?["label"]?.nonEmptyString,
+                    let chart = try? await model.dataSource.dashboardChart(name: chartName)
+                else { continue }
+                charts.append(chart)
+            }
+
             let loaded = Loaded(
                 shortcuts: Self.entries(from: doc.raw["shortcuts"]?.arrayValue ?? []),
-                cards: Self.cards(from: doc.raw["links"]?.arrayValue ?? []))
+                cards: Self.cards(from: doc.raw["links"]?.arrayValue ?? []),
+                numberCards: numberCards,
+                charts: charts)
             state = .loaded(loaded)
             model.cache.setScreen(cacheKey, loaded)
         } catch {
@@ -149,5 +209,43 @@ struct WorkspaceScreen: View {
         }
         // Pages, dashboards and other Desk-only surfaces are skipped.
         return nil
+    }
+}
+
+
+/// A Desk Dashboard Chart as native Swift Charts. Line and Bar map
+/// directly; other Desk styles (Pie, Donut, Percentage, Heatmap) fall back
+/// to bars, which stays legible for the underlying series data.
+struct WorkspaceChartView: View {
+    let chart: DashboardChartData
+
+    var body: some View {
+        Chart {
+            ForEach(chart.datasets, id: \.name) { dataset in
+                ForEach(
+                    Array(dataset.values.enumerated()), id: \.offset
+                ) { index, value in
+                    if chart.chartStyle == "Line" {
+                        LineMark(
+                            x: .value("Period", label(at: index)),
+                            y: .value(dataset.name, value)
+                        )
+                        .foregroundStyle(by: .value("Series", dataset.name))
+                    } else {
+                        BarMark(
+                            x: .value("Period", label(at: index)),
+                            y: .value(dataset.name, value)
+                        )
+                        .foregroundStyle(by: .value("Series", dataset.name))
+                        .position(by: .value("Series", dataset.name))
+                    }
+                }
+            }
+        }
+        .chartLegend(chart.datasets.count > 1 ? .visible : .hidden)
+    }
+
+    private func label(at index: Int) -> String {
+        index < chart.labels.count ? chart.labels[index] : String(index + 1)
     }
 }

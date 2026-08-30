@@ -245,6 +245,37 @@ enum DemoFixtures {
         }
         """#
 
+    /// A public Workspace with shortcuts, link cards, number cards, charts.
+    static let workspaceDocs = #"""
+        {
+          "data": [
+            {
+              "name": "Accounting",
+              "title": "Accounting",
+              "public": 1,
+              "shortcuts": [
+                {"label": "Sales Invoices", "type": "DocType", "link_to": "Sales Invoice"},
+                {"label": "Profit and Loss", "type": "Report", "link_to": "Profit and Loss Statement"}
+              ],
+              "links": [
+                {"type": "Card Break", "label": "Receivables"},
+                {"type": "Link", "label": "Sales Invoice", "link_type": "DocType", "link_to": "Sales Invoice"},
+                {"type": "Link", "label": "Chart of Accounts", "link_type": "DocType", "link_to": "Account"},
+                {"type": "Card Break", "label": "Reports"},
+                {"type": "Link", "label": "Trial Balance", "link_type": "Report", "link_to": "Trial Balance", "is_query_report": 1}
+              ],
+              "number_cards": [
+                {"number_card_name": "Total Outstanding", "label": "Total Outstanding"},
+                {"number_card_name": "Annual Income", "label": "Annual Income"}
+              ],
+              "charts": [
+                {"chart_name": "Income Trend", "label": "Income Trend"}
+              ]
+            }
+          ]
+        }
+        """#
+
     static let salesInvoiceList = #"""
         {
           "data": [

@@ -116,6 +116,34 @@ public struct DemoDataSource: DataSource {
         }
     }
 
+    public func workspaces() async throws -> [WorkspaceInfo] {
+        [WorkspaceInfo(name: "Accounting", title: "Accounting", icon: "accounting")]
+    }
+
+    public func numberCardValue(cardName: String) async throws -> NumberCardValue? {
+        switch cardName {
+        case "Total Outstanding":
+            return NumberCardValue(label: "Total Outstanding", value: .double(30380))
+        case "Annual Income":
+            return NumberCardValue(label: "Annual Income", value: .double(941470))
+        default:
+            return nil
+        }
+    }
+
+    public func dashboardChart(name: String) async throws -> DashboardChartData? {
+        guard name == "Income Trend" else { return nil }
+        return DashboardChartData(
+            name: name, label: "Income Trend", chartStyle: "Bar",
+            labels: ["Q1", "Q2", "Q3", "Q4"],
+            datasets: [
+                DashboardChartData.Dataset(
+                    name: "Income", values: [208150, 233010, 231520, 268790]),
+                DashboardChartData.Dataset(
+                    name: "Expenses", values: [161550, 175330, 171340, 200210]),
+            ])
+    }
+
     public func globalSearch(query: String) async throws -> [GlobalSearchHit] {
         guard !query.isEmpty else { return [] }
         var hits: [GlobalSearchHit] = []
@@ -147,6 +175,7 @@ public struct DemoDataSource: DataSource {
         let fixtures: [String: String] = [
             "Sales Invoice": DemoFixtures.salesInvoiceDocs,
             "Account": DemoFixtures.accountDocs,
+            "Workspace": DemoFixtures.workspaceDocs,
         ]
         guard let fixture = fixtures[doctype] else {
             throw ERPNextError(

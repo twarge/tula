@@ -44,6 +44,8 @@ public enum ReadMethod: String, Sendable, CaseIterable {
     case searchLink = "frappe.desk.search.search_link"
     case getReportScript = "frappe.desk.query_report.get_script"
     case globalSearch = "frappe.utils.global_search.search"
+    case numberCardResult = "frappe.desk.doctype.number_card.number_card.get_result"
+    case dashboardChartGet = "frappe.desk.doctype.dashboard_chart.dashboard_chart.get"
 }
 
 /// A list-endpoint filter, serialized as Frappe's `[fieldname, operator, value]`.

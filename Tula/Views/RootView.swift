@@ -26,6 +26,9 @@ struct RootView: View {
             if raw.hasPrefix("tree:") {
                 return .tree(String(raw.dropFirst("tree:".count)))
             }
+            if raw.hasPrefix("workspace:") {
+                return .workspace(String(raw.dropFirst("workspace:".count)))
+            }
             if raw.hasPrefix("query:") {
                 return .queryReport(name: String(raw.dropFirst("query:".count)), extra: [:])
             }

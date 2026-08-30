@@ -30,6 +30,50 @@ public struct GlobalSearchHit: Sendable, Hashable, Identifiable {
     public var id: String { "\(doctype)/\(name)" }
 }
 
+/// A Desk Number Card evaluated server-side.
+public struct NumberCardValue: Sendable, Hashable {
+    public let label: String
+    public let value: FrappeValue
+
+    public init(label: String, value: FrappeValue) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// A Desk Dashboard Chart's data, ready for native charting.
+public struct DashboardChartData: Sendable, Hashable, Identifiable {
+    public struct Dataset: Sendable, Hashable {
+        public let name: String
+        public let values: [Double]
+
+        public init(name: String, values: [Double]) {
+            self.name = name
+            self.values = values
+        }
+    }
+
+    public let name: String
+    public let label: String
+    /// Desk chart type: Line, Bar, Percentage, Pie, Donut, Heatmap.
+    public let chartStyle: String
+    public let labels: [String]
+    public let datasets: [Dataset]
+
+    public init(
+        name: String, label: String, chartStyle: String, labels: [String],
+        datasets: [Dataset]
+    ) {
+        self.name = name
+        self.label = label
+        self.chartStyle = chartStyle
+        self.labels = labels
+        self.datasets = datasets
+    }
+
+    public var id: String { name }
+}
+
 /// One result of a link-field autocomplete (`frappe.desk.search.search_link`).
 public struct LinkOption: Sendable, Hashable, Identifiable {
     public var value: String
@@ -77,6 +121,10 @@ public protocol DataSource: Sendable {
     func globalSearch(query: String) async throws -> [GlobalSearchHit]
     /// Raw bytes of a server-stored file (attachment paths only).
     func fileData(path: String) async throws -> Data
+    /// A Desk Number Card's current value.
+    func numberCardValue(cardName: String) async throws -> NumberCardValue?
+    /// A Desk Dashboard Chart's series data.
+    func dashboardChart(name: String) async throws -> DashboardChartData?
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -116,6 +164,14 @@ extension DataSource {
 
     public func fileData(path: String) async throws -> Data {
         throw ERPNextError(message: "Files aren't available for this data source.")
+    }
+
+    public func numberCardValue(cardName: String) async throws -> NumberCardValue? {
+        nil
+    }
+
+    public func dashboardChart(name: String) async throws -> DashboardChartData? {
+        nil
     }
 
     public func reportScript(name: String) async throws -> String? {
@@ -256,6 +312,43 @@ public struct LiveDataSource: DataSource {
 
     public func fileData(path: String) async throws -> Data {
         try await client.data(for: .file(path: path))
+    }
+
+    public func numberCardValue(cardName: String) async throws -> NumberCardValue? {
+        // Desk evaluates a card by posting the card document to get_result;
+        // the same call works as a GET with the doc as a JSON parameter.
+        let card = try await document("Number Card", name: cardName)
+        let docJSON = try FrappeValue.object(card.raw).encodedJSONString()
+        let data = try await client.data(
+            for: .method(.numberCardResult, parameters: ["doc": docJSON]))
+        guard let root = try FrappeValue.decode(from: data).objectValue else { return nil }
+        return NumberCardValue(
+            label: card["label"]?.nonEmptyString ?? cardName,
+            value: root["message"] ?? .null)
+    }
+
+    public func dashboardChart(name: String) async throws -> DashboardChartData? {
+        let chartDoc = try? await document("Dashboard Chart", name: name)
+        let data = try await client.data(
+            for: .method(
+                .dashboardChartGet, parameters: ["chart_name": name, "refresh": "1"]))
+        guard let root = try FrappeValue.decode(from: data).objectValue,
+            let message = root["message"]?.objectValue
+        else { return nil }
+        let labels = (message["labels"]?.arrayValue ?? []).compactMap { $0.stringValue }
+        let datasets = (message["datasets"]?.arrayValue ?? []).compactMap {
+            entry -> DashboardChartData.Dataset? in
+            guard let dict = entry.objectValue else { return nil }
+            return DashboardChartData.Dataset(
+                name: dict["name"]?.nonEmptyString ?? "Values",
+                values: (dict["values"]?.arrayValue ?? []).map { $0.doubleValue ?? 0 })
+        }
+        guard !labels.isEmpty, !datasets.isEmpty else { return nil }
+        return DashboardChartData(
+            name: name,
+            label: chartDoc?["chart_name"]?.nonEmptyString ?? name,
+            chartStyle: chartDoc?["type"]?.nonEmptyString ?? "Bar",
+            labels: labels, datasets: datasets)
     }
 
     public func workspaces() async throws -> [WorkspaceInfo] {
