@@ -376,6 +376,55 @@ prepared-report polling and multiple server profiles.
     multiple server profiles, connectivity indicator, Developer ID notarized Mac build and
     TestFlight for iOS (certs already present), CI running `swift test` + both builds. (M)
 
+### The write map (design — everything needed to complete the interface)
+
+All writes stay behind the shipped gate (§6): enumerated operations only, session-only
+unlock, server-authoritative, no offline writes ever. Five waves, each keeping the app
+consistent if work stops after it:
+
+**W1 — Collaboration completion (S–M).** Rounds out what shipped:
+share add/remove (`frappe.share.add/remove`), like toggle (`frappe.desk.like.toggle_like`),
+follow (`document_follow`), assign to *others* (user picker over the existing `search_link`
+on User; close/complete assignments), edit/delete own comments
+(`update_comment` / delete Comment), attachment upload (multipart `upload_file` — the one
+new transport shape `WriteClient` needs) and File delete, Remind Me (Reminder insert).
+
+**W2 — Lifecycle without field editing (M).** Submit and Cancel
+(`frappe.client.submit/cancel`) with hard confirmations; **workflow actions** — fully
+metadata-driven from the readable Workflow DocType (states, transitions, allowed roles) →
+native action buttons; Delete (`frappe.client.delete`, confirm-by-name for cancelled/draft
+docs); Rename (`update_document_title`); Duplicate (fetch → strip system fields → 
+`frappe.client.insert`). Requires a `WriteEndpoint` growth: enumerated REST verbs
+(PUT/POST/DELETE `/api/resource`) beside the method whitelist.
+
+**W3 — Field editing (L, the core).** Edit mode on drafts (+ `allow_on_submit` fields on
+submitted docs); the field registry grows editable counterparts per fieldtype (TextField /
+TextEditor / numeric with formatters / pickers / Toggle / Select Picker / Link type-ahead
+reusing the filter-chip search / editable child-table rows via the row-detail sheet / file
+picker for Attach; HTML fields edit as plain text in v1); enforcement becomes real:
+`read_only`, `reqd`, `set_only_once`, permlevels, `read_only_depends_on` and
+`mandatory_depends_on` through the existing JavaScriptCore evaluator; save via PUT with the
+cached `modified` token (optimistic concurrency — TimestampMismatch → reload banner, draft
+lost in v1); auto-refresh pauses during an edit session. **Server-computed fields rule:**
+the client does only convention-safe math (amount = qty × rate); taxes, pricing rules, and
+totals refresh from server truth on save, displayed as such.
+
+**W4 — Creation (M, after W3).** New-document buttons on lists/workspaces; Quick Entry
+sheets generated from the meta's quick-entry fields (Desk's own compact-create pattern);
+full blank form from meta defaults; naming stays server-side. Amend lands here (create the
+amended copy, open it as an editable draft).
+
+**W5 — Settings & bulk (M).** Persist list columns/sort back to List View Settings and
+user settings; save filter presets (List Filter insert); bulk list operations
+(assign/tag/submit/delete over selections). Email stays a `mailto:` hand-off with a Desk
+link — no server write needed — unless full Communication authoring is ever wanted (L).
+
+**Cross-cutting requirements:** two-step confirmations for destructive/irreversible ops
+(submit, cancel, delete) under the single session lock; permission-aware affordances
+(meta `permissions` + user roles readable — hide what the server would refuse, but the
+server stays the enforcer); every mutation follows the shipped pattern — inline error,
+refresh document on success.
+
 ### Engineering debt
 
 - Meta cache is session-long: manual refresh (⌘R) should also bust it.
