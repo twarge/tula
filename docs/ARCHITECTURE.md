@@ -146,8 +146,16 @@ voucher → party) works uniformly with no per-feature code.
 3. **Server (recommended, defense in depth):** connect with an API key for a dedicated
    ERPNext user holding only `read`/`report` permissions, so even a bug cannot write.
 
-**If writes are ever enabled** (deliberately out of scope today): keep this structure — do
-not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
+**The write gate (shipped 2026-08-30).** Writes exist behind a session-only gate, built
+exactly as prescribed below: `WriteClient` is the only type able to issue a non-GET request,
+it can only call the enumerated `WriteMethod` whitelist (add comment, add/remove assignment,
+add/remove tag — Desk's collaboration operations), and it exists only while the user has
+opened the toolbar lock (off by default, relocked on settings changes, unavailable in demo
+mode). Comment attribution and self-assignment use the signed-in identity from
+`frappe.auth.get_logged_user`. Document mutations (edit, submit, cancel, amend, delete,
+rename, duplicate) remain out of scope and impossible by construction.
+
+**For any further writes**: keep this structure — do not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
 enumerated mutation whitelist (save/submit/cancel/amend), a distinct capability protocol
 beside the read-only `DataSource`, and per-connection opt-in (ideally a separate
 write-scoped API key). Writes stay server-authoritative — commands up, refetch truth down;

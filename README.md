@@ -1,8 +1,10 @@
 # Tula
 
-A native macOS/iOS SwiftUI client for ERPNext. **Strictly read-only** — the
-HTTP layer can only issue GET requests to whitelisted read APIs, so the app
-cannot modify server state by construction.
+A native macOS/iOS SwiftUI client for ERPNext. **Read-only by default** — the
+reading transport can only issue GET requests to whitelisted read APIs. A
+toolbar lock optionally unlocks a small, enumerated set of collaboration
+writes (comments, assignments, tags) for the session; everything else —
+editing, submitting, deleting — remains impossible by construction.
 
 Instead of one hand-built screen per ERPNext feature, Tula replicates what
 ERPNext's own web UI does: it renders generically from the server's metadata

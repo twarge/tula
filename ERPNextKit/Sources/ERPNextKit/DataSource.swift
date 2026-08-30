@@ -128,6 +128,8 @@ public protocol DataSource: Sendable {
     /// Linked-document counts for a document's dashboard, keyed by DocType
     /// (Desk's batched get_open_count).
     func openCounts(doctype: String, name: String) async throws -> [String: Int]?
+    /// The signed-in user's identifier (email), when the source knows it.
+    func loggedUser() async throws -> String?
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -178,6 +180,10 @@ extension DataSource {
     }
 
     public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {
+        nil
+    }
+
+    public func loggedUser() async throws -> String? {
         nil
     }
 
@@ -319,6 +325,11 @@ public struct LiveDataSource: DataSource {
 
     public func fileData(path: String) async throws -> Data {
         try await client.data(for: .file(path: path))
+    }
+
+    public func loggedUser() async throws -> String? {
+        let data = try await client.data(for: .method(.loggedUser, parameters: [:]))
+        return try FrappeValue.decode(from: data).objectValue?["message"]?.nonEmptyString
     }
 
     public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {

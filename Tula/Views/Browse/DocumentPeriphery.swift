@@ -212,13 +212,16 @@ struct PeripheryBar: View {
     let periphery: DocumentPeriphery
     let documentName: String
     var actions: [DocumentAction] = []
+    var doctype: String = ""
+    var onMutate: () -> Void = {}
 
     @Environment(AppModel.self) private var model
     @State private var previewURL: URL?
     @State private var downloadError: String?
+    @State private var writeError: String?
 
     var body: some View {
-        if periphery.hasBarContent || !actions.isEmpty {
+        if periphery.hasBarContent || !actions.isEmpty || model.writesUnlocked {
             HStack(spacing: 8) {
                 DocumentActionsCluster(actions: actions)
                     .layoutPriority(1)
@@ -232,12 +235,25 @@ struct PeripheryBar: View {
             .background(.bar)
             .quickLookPreview($previewURL)
             .overlay(alignment: .bottomLeading) {
-                if let downloadError {
-                    Text(downloadError)
+                if let message = downloadError ?? writeError {
+                    Text(message)
                         .font(.caption2)
                         .foregroundStyle(.red)
                         .padding(.leading, 12)
                 }
+            }
+        }
+    }
+
+    /// Runs a gated mutation, surfaces errors, and refreshes on success.
+    private func write(_ operation: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await operation()
+                writeError = nil
+                onMutate()
+            } catch {
+                writeError = error.localizedDescription
             }
         }
     }
@@ -250,9 +266,54 @@ struct PeripheryBar: View {
                     }
                     ForEach(periphery.assignees, id: \.self) { assignee in
                         chip(label: assignee, systemImage: "person.crop.circle")
+                            .contextMenu {
+                                if let session = model.writeSession {
+                                    Button(role: .destructive) {
+                                        write {
+                                            try await session.removeAssignment(
+                                                doctype: doctype, name: documentName,
+                                                user: assignee)
+                                        }
+                                    } label: {
+                                        Label("Remove Assignment", systemImage: "person.badge.minus")
+                                    }
+                                }
+                            }
+                    }
+                    if let session = model.writeSession,
+                        !periphery.assignees.contains(session.user) {
+                        Button {
+                            write {
+                                try await session.assignToMe(
+                                    doctype: doctype, name: documentName)
+                            }
+                        } label: {
+                            chip(label: "Assign to me", systemImage: "person.badge.plus")
+                        }
+                        .buttonStyle(.plain)
                     }
                     ForEach(periphery.tags, id: \.self) { tag in
                         chip(label: tag, systemImage: "tag")
+                            .contextMenu {
+                                if let session = model.writeSession {
+                                    Button(role: .destructive) {
+                                        write {
+                                            try await session.removeTag(
+                                                tag, doctype: doctype, name: documentName)
+                                        }
+                                    } label: {
+                                        Label("Remove Tag", systemImage: "tag.slash")
+                                    }
+                                }
+                            }
+                    }
+                    if model.writeSession != nil {
+                        AddTagChip { tag in
+                            write {
+                                try await model.writeSession?.addTag(
+                                    tag, doctype: doctype, name: documentName)
+                            }
+                        }
                     }
                     if !periphery.attachments.isEmpty {
                         AttachmentsChip(
@@ -415,6 +476,13 @@ private struct SharesChip: View {
 struct PeripheryTrailingSections: View {
     let periphery: DocumentPeriphery
     let documentName: String
+    var doctype: String = ""
+    var onMutate: () -> Void = {}
+
+    @Environment(AppModel.self) private var model
+    @State private var commentDraft = ""
+    @State private var isPostingComment = false
+    @State private var commentError: String?
 
     var body: some View {
         if !periphery.connections.isEmpty {
@@ -440,9 +508,34 @@ struct PeripheryTrailingSections: View {
             }
         }
 
-        if !periphery.comments.isEmpty {
+        if !periphery.comments.isEmpty || model.writesUnlocked {
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
+                    if let session = model.writeSession {
+                        HStack(spacing: 8) {
+                            TextField("Add a comment…", text: $commentDraft, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(1...4)
+                            Button {
+                                postComment(session)
+                            } label: {
+                                if isPostingComment {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "paperplane.fill")
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(
+                                isPostingComment
+                                    || commentDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                        if let commentError {
+                            Text(commentError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
                     ForEach(periphery.comments) { comment in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
@@ -498,6 +591,24 @@ struct PeripheryTrailingSections: View {
         }
     }
 
+    private func postComment(_ session: WriteSession) {
+        let content = commentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        isPostingComment = true
+        Task {
+            do {
+                try await session.addComment(
+                    doctype: doctype, name: documentName, content: content)
+                commentDraft = ""
+                commentError = nil
+                onMutate()
+            } catch {
+                commentError = error.localizedDescription
+            }
+            isPostingComment = false
+        }
+    }
+
     private var groupedConnections: [(title: String, connections: [DocumentPeriphery.Connection])] {
         var order: [String] = []
         var groups: [String: [DocumentPeriphery.Connection]] = [:]
@@ -540,5 +651,51 @@ struct PeripheryTrailingSections: View {
             }
             .foregroundStyle(.tertiary)
         }
+    }
+}
+
+
+/// "+ Tag" chip: small popover with a text field; submits a new tag.
+private struct AddTagChip: View {
+    let onAdd: (String) -> Void
+
+    @State private var showingPopover = false
+    @State private var tag = ""
+
+    var body: some View {
+        Button {
+            tag = ""
+            showingPopover = true
+        } label: {
+            Label("Tag", systemImage: "plus")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.tint.opacity(0.15), in: Capsule())
+                .foregroundStyle(.tint)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+            HStack(spacing: 8) {
+                TextField("New tag", text: $tag)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .onSubmit { submit() }
+                Button("Add") { submit() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(tag.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(12)
+            #if os(macOS)
+                .frame(width: 260)
+            #endif
+        }
+    }
+
+    private func submit() {
+        let trimmed = tag.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        showingPopover = false
+        onAdd(trimmed)
     }
 }

@@ -26,6 +26,33 @@ final class AppModel {
     var pendingRoute: Route?
     var omnibarRequested = false
 
+    /// The write gate (ARCHITECTURE.md §6): OFF by default, session-only,
+    /// toggled by the toolbar lock. While locked, no write path exists.
+    private(set) var writesUnlocked = false
+    private(set) var writeSession: WriteSession?
+    private(set) var writeGateError: String?
+
+    var canUnlockWrites: Bool {
+        !useDemo && liveConfiguration() != nil
+    }
+
+    func setWritesUnlocked(_ unlocked: Bool) async {
+        writeGateError = nil
+        guard unlocked else {
+            writesUnlocked = false
+            writeSession = nil
+            return
+        }
+        guard let configuration = liveConfiguration() else { return }
+        guard let user = (try? await dataSource.loggedUser()) ?? nil else {
+            writeGateError = "Couldn't identify the signed-in user; writes stay locked."
+            return
+        }
+        writeSession = WriteSession(
+            client: WriteClient(configuration: configuration), user: user)
+        writesUnlocked = true
+    }
+
     var filterState = FinancialFilterState()
     private(set) var companies: [Company] = []
     private(set) var fiscalYears: [FiscalYear] = []
@@ -68,6 +95,9 @@ final class AppModel {
 
         dataSource = makeDataSource()
         sourceGeneration += 1
+        writesUnlocked = false
+        writeSession = nil
+        writeGateError = nil
         cache.removeAll()
         companies = []
         fiscalYears = []

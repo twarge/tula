@@ -46,6 +46,7 @@ public enum ReadMethod: String, Sendable, CaseIterable {
     case globalSearch = "frappe.utils.global_search.search"
     case numberCardResult = "frappe.desk.doctype.number_card.number_card.get_result"
     case openCount = "frappe.desk.notifications.get_open_count"
+    case loggedUser = "frappe.auth.get_logged_user"
     case dashboardChartGet = "frappe.desk.doctype.dashboard_chart.dashboard_chart.get"
 }
 
@@ -160,7 +161,7 @@ public final class ReadOnlyClient: Sendable {
     }
 
     /// Pull a human-readable message out of a Frappe error payload.
-    private static func serverMessage(from data: Data, statusCode: Int) -> String {
+    static func serverMessage(from data: Data, statusCode: Int) -> String {
         let fallback = "Server returned HTTP \(statusCode)"
         guard let root = try? FrappeValue.decode(from: data).objectValue else { return fallback }
 

@@ -114,3 +114,30 @@ struct UpdatedStamp: View {
         }
     }
 }
+
+
+/// The write-gate lock: read-only by default, tap to unlock writes for this
+/// session (ARCHITECTURE.md §6). Hidden in demo mode and when no live server
+/// is configured.
+struct WriteGateToolbar: ToolbarContent {
+    @Environment(AppModel.self) private var model
+
+    var body: some ToolbarContent {
+        if model.canUnlockWrites {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await model.setWritesUnlocked(!model.writesUnlocked) }
+                } label: {
+                    Label(
+                        model.writesUnlocked ? "Lock (read-only)" : "Unlock writes",
+                        systemImage: model.writesUnlocked ? "lock.open.fill" : "lock.fill")
+                }
+                .tint(model.writesUnlocked ? .orange : nil)
+                .help(
+                    model.writesUnlocked
+                        ? "Writes enabled for this session — click to return to read-only"
+                        : "Read-only — click to enable comments, assignments, and tags")
+            }
+        }
+    }
+}

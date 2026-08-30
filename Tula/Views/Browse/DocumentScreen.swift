@@ -38,14 +38,18 @@ struct DocumentScreen: View {
                     PeripheryBar(
                         periphery: loaded.periphery, documentName: name,
                         actions: DocumentAction.actions(
-                            doctype: doctype, name: name, webBase: model.webBaseURL))
+                            doctype: doctype, name: name, webBase: model.webBaseURL),
+                        doctype: doctype,
+                        onMutate: { refreshToken += 1 })
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             DocumentFormView(
                                 meta: loaded.meta, childMetas: loaded.childMetas,
                                 document: loaded.document, gridColumns: loaded.gridColumns)
                             PeripheryTrailingSections(
-                                periphery: loaded.periphery, documentName: name)
+                                periphery: loaded.periphery, documentName: name,
+                                doctype: doctype,
+                                onMutate: { refreshToken += 1 })
                         }
                         .padding()
                         .frame(maxWidth: 900, alignment: .leading)
@@ -57,6 +61,7 @@ struct DocumentScreen: View {
         }
         .navigationTitle(title)
         .toolbar {
+            WriteGateToolbar()
             OpenInDeskToolbar(route: .document(doctype: doctype, name: name))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
