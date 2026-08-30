@@ -345,7 +345,14 @@ missing is navigation and filters:
    Connections tab counts → filtered-list routes; read-only comments/activity timeline
    (`_comment_count`, Comment/Version DocTypes); assignment/tag chips. (M–L)
 
-### Phase 5 — dashboards, polish, distribution (next)
+### Phase 5 — dashboards, polish, distribution ✅ shipped Aug 2026
+
+Shipped: workspace number cards + dashboard charts (Swift Charts), native PDF export,
+precision-honoring formatting, between/timespan operators and server filter presets,
+macOS Go menu (⌘1–5/⌘0/⌘K), manual refresh busts the meta cache, and CI imported from
+calcium: a test+build workflow plus an App Store Connect upload pipeline (cloud signing,
+version-train preflight) awaiting the five repository secrets. Deferred from this phase:
+prepared-report polling and multiple server profiles.
 
 10. **Dashboards** — Number Cards and Dashboard Charts via their whitelisted read methods
     + Swift Charts; workspace cards slot in from Phase 4. (L)
