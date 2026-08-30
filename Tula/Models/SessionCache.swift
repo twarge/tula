@@ -47,6 +47,12 @@ final class SessionCache {
         screens[key] = (value, Date())
     }
 
+    /// Drops memoized metadata (manual-refresh hook) while keeping screens.
+    func invalidateMeta() {
+        metaBundles = [:]
+        listColumns = [:]
+    }
+
     func removeAll() {
         metaBundles = [:]
         listColumns = [:]

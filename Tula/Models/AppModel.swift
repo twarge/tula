@@ -22,6 +22,10 @@ final class AppModel {
     /// Session caches (metadata, screens, snapshots) — ARCHITECTURE.md §11.
     let cache = SessionCache()
 
+    /// Set by menu commands (⌘1–5, ⌘K); consumed by RootView.
+    var pendingRoute: Route?
+    var omnibarRequested = false
+
     var filterState = FinancialFilterState()
     private(set) var companies: [Company] = []
     private(set) var fiscalYears: [FiscalYear] = []

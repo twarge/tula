@@ -41,7 +41,8 @@ enum ValueFormatting {
     }()
 
     static func string(
-        for value: FrappeValue?, fieldtype: FieldType, currencyCode: String? = nil
+        for value: FrappeValue?, fieldtype: FieldType, currencyCode: String? = nil,
+        precision: Int? = nil
     ) -> String {
         guard let value, !value.isNull else { return "" }
 
@@ -50,13 +51,13 @@ enum ValueFormatting {
             guard let number = value.doubleValue else { return value.stringValue ?? "" }
             if let currencyCode {
                 return number.formatted(
-                    .currency(code: currencyCode).precision(.fractionLength(2)))
+                    .currency(code: currencyCode).precision(.fractionLength(precision ?? 2)))
             }
-            return number.formatted(.number.precision(.fractionLength(2)))
+            return number.formatted(.number.precision(.fractionLength(precision ?? 2)))
 
         case .float:
             guard let number = value.doubleValue else { return value.stringValue ?? "" }
-            return number.formatted(.number.precision(.fractionLength(0...3)))
+            return number.formatted(.number.precision(.fractionLength(0...(precision ?? 3))))
 
         case .int:
             return value.intValue?.formatted() ?? (value.stringValue ?? "")

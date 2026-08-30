@@ -25,6 +25,14 @@ struct FilterCondition: Identifiable, Hashable {
         case .notLike:
             guard !value.isEmpty else { return nil }
             return ListFilter(fieldname, "not like", .string("%\(value)%"))
+        case .between:
+            let parts = value.split(separator: "|", maxSplits: 1).map(String.init)
+            guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+            return ListFilter(
+                fieldname, "between", .array([.string(parts[0]), .string(parts[1])]))
+        case .timespan:
+            guard !value.isEmpty else { return nil }
+            return ListFilter(fieldname, "timespan", .string(value))
         default:
             guard !value.isEmpty else { return nil }
             return ListFilter(fieldname, op.rawValue, .string(value))
@@ -41,6 +49,8 @@ enum FilterOperator: String, CaseIterable, Identifiable {
     case lessThan = "<"
     case greaterOrEqual = ">="
     case lessOrEqual = "<="
+    case between = "between"
+    case timespan = "timespan"
     case isSet = "is set"
     case isNotSet = "is not set"
 
@@ -56,6 +66,8 @@ enum FilterOperator: String, CaseIterable, Identifiable {
         case .lessThan: return "<"
         case .greaterOrEqual: return "≥"
         case .lessOrEqual: return "≤"
+        case .between: return "Between"
+        case .timespan: return "Timespan"
         case .isSet: return "Is Set"
         case .isNotSet: return "Is Not Set"
         }
@@ -78,12 +90,12 @@ enum FilterOperator: String, CaseIterable, Identifiable {
         case .int, .float, .currency, .percent:
             return [
                 .equals, .notEquals, .greaterThan, .lessThan, .greaterOrEqual,
-                .lessOrEqual, .isSet, .isNotSet,
+                .lessOrEqual, .between, .isSet, .isNotSet,
             ]
         case .date, .datetime:
             return [
-                .equals, .greaterThan, .lessThan, .greaterOrEqual, .lessOrEqual,
-                .isSet, .isNotSet,
+                .equals, .between, .timespan, .greaterThan, .lessThan,
+                .greaterOrEqual, .lessOrEqual, .isSet, .isNotSet,
             ]
         case .link, .dynamicLink:
             return [.equals, .notEquals, .like, .notLike, .isSet, .isNotSet]
@@ -135,7 +147,9 @@ struct FilterEditorView: View {
     @Binding var applied: [FilterCondition]
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppModel.self) private var model
     @State private var draft: [FilterCondition] = []
+    @State private var presets: [(name: String, conditions: [FilterCondition])] = []
 
     private var fields: [FilterableField] { FilterableField.all(for: meta) }
 
@@ -162,6 +176,17 @@ struct FilterEditorView: View {
                 }
                 .buttonStyle(.borderless)
 
+                if !presets.isEmpty {
+                    Menu {
+                        ForEach(presets, id: \.name) { preset in
+                            Button(preset.name) { draft = preset.conditions }
+                        }
+                    } label: {
+                        Label("Presets", systemImage: "bookmark")
+                    }
+                    .fixedSize()
+                }
+
                 Spacer()
 
                 Button("Clear Filters") {
@@ -182,6 +207,60 @@ struct FilterEditorView: View {
         .onAppear {
             draft = applied.isEmpty ? [FilterCondition()] : applied
         }
+        .task {
+            await loadPresets()
+        }
+    }
+
+    /// Desk's saved filters (the List Filter DocType) offered read-only.
+    private func loadPresets() async {
+        guard
+            let docs = try? await model.dataSource.list(
+                "List Filter", fields: ["name", "filter_name", "filters"],
+                filters: [ListFilter("reference_doctype", "=", .string(meta.name))],
+                orderBy: "modified desc", limitStart: 0, limitPageLength: 20)
+        else { return }
+        presets = docs.compactMap { doc in
+            guard let label = doc["filter_name"]?.nonEmptyString,
+                let raw = doc["filters"]?.nonEmptyString,
+                let decoded = try? FrappeValue.decode(from: Data(raw.utf8)),
+                let rows = decoded.arrayValue
+            else { return nil }
+            let conditions = rows.compactMap { Self.condition(from: $0) }
+            guard !conditions.isEmpty else { return nil }
+            return (label, conditions)
+        }
+    }
+
+    /// `[doctype, fieldname, operator, value]` (or the 3-tuple form) → a
+    /// native condition; unsupported operators are skipped.
+    private static func condition(from row: FrappeValue) -> FilterCondition? {
+        guard var parts = row.arrayValue, parts.count >= 3 else { return nil }
+        if parts.count >= 4 { parts.removeFirst() }
+        guard let fieldname = parts[0].nonEmptyString,
+            let opRaw = parts[1].nonEmptyString?.lowercased()
+        else { return nil }
+        let rawValue = parts.count > 2 ? parts[2] : .null
+
+        var op: FilterOperator
+        var value: String
+        switch opRaw {
+        case "is":
+            op = rawValue.stringValue == "not set" ? .isNotSet : .isSet
+            value = ""
+        case "between":
+            op = .between
+            value = (rawValue.arrayValue ?? []).compactMap { $0.stringValue }
+                .joined(separator: "|")
+        case "like", "not like":
+            op = opRaw == "like" ? .like : .notLike
+            value = (rawValue.stringValue ?? "").replacingOccurrences(of: "%", with: "")
+        default:
+            guard let known = FilterOperator(rawValue: opRaw) else { return nil }
+            op = known
+            value = rawValue.stringValue ?? ""
+        }
+        return FilterCondition(fieldname: fieldname, op: op, value: value)
     }
 }
 
@@ -240,10 +319,68 @@ private struct FilterConditionRow: View {
         }
     }
 
+    /// Frappe's named ranges for the `timespan` operator.
+    static let timespans = [
+        "today", "yesterday", "this week", "this month", "this quarter",
+        "this year", "last week", "last month", "last quarter",
+        "last 6 months", "last year",
+    ]
+
+    private func betweenComponent(_ index: Int) -> Binding<String> {
+        Binding {
+            let parts = condition.value.split(
+                separator: "|", maxSplits: 1, omittingEmptySubsequences: false
+            ).map(String.init)
+            return index < parts.count ? parts[index] : ""
+        } set: { newValue in
+            var parts = condition.value.split(
+                separator: "|", maxSplits: 1, omittingEmptySubsequences: false
+            ).map(String.init)
+            while parts.count < 2 { parts.append("") }
+            parts[index] = newValue
+            condition.value = parts.joined(separator: "|")
+        }
+    }
+
+    private func betweenDateBinding(_ index: Int) -> Binding<Date> {
+        Binding {
+            ValueFormatting.wireDateValue(betweenComponent(index).wrappedValue) ?? Date()
+        } set: { date in
+            betweenComponent(index).wrappedValue = ValueFormatting.wireDateString(date)
+        }
+    }
+
     @ViewBuilder
     private var valueEditor: some View {
         if !condition.op.takesValue {
             Spacer()
+        } else if condition.op == .timespan {
+            Menu {
+                ForEach(Self.timespans, id: \.self) { span in
+                    Button(span.capitalized) { condition.value = span }
+                }
+            } label: {
+                Text(condition.value.isEmpty ? "Choose…" : condition.value.capitalized)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else if condition.op == .between {
+            if field?.fieldtype == .date || field?.fieldtype == .datetime {
+                HStack(spacing: 6) {
+                    DatePicker("", selection: betweenDateBinding(0), displayedComponents: .date)
+                        .labelsHidden()
+                    Text("–").foregroundStyle(.secondary)
+                    DatePicker("", selection: betweenDateBinding(1), displayedComponents: .date)
+                        .labelsHidden()
+                }
+            } else {
+                HStack(spacing: 6) {
+                    TextField("From", text: betweenComponent(0))
+                        .textFieldStyle(.roundedBorder)
+                    Text("–").foregroundStyle(.secondary)
+                    TextField("To", text: betweenComponent(1))
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
         } else {
             switch field?.fieldtype {
             case .select:

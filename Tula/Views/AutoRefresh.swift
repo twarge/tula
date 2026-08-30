@@ -67,6 +67,8 @@ struct RefreshToolbar: ToolbarContent {
     var detail: String? = nil
     let action: () -> Void
 
+    @Environment(AppModel.self) private var model
+
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             #if os(macOS)
@@ -87,7 +89,12 @@ struct RefreshToolbar: ToolbarContent {
     }
 
     private var refreshButton: some View {
-        Button(action: action) {
+        Button {
+            // Manual refresh also busts the session meta cache, so schema
+            // changes on the server are picked up without a relaunch.
+            model.cache.invalidateMeta()
+            action()
+        } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
         }
         .keyboardShortcut("r", modifiers: .command)

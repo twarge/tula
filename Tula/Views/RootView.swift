@@ -60,6 +60,18 @@ struct RootView: View {
         .onChange(of: selection) {
             path = NavigationPath()
         }
+        .onChange(of: model.pendingRoute) { _, route in
+            if let route {
+                selection = route
+                model.pendingRoute = nil
+            }
+        }
+        .onChange(of: model.omnibarRequested) { _, requested in
+            if requested {
+                showingOmnibar = true
+                model.omnibarRequested = false
+            }
+        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
@@ -69,12 +81,15 @@ struct RootView: View {
                 path.append(route)
             }
         }
-        .background(
-            // Global search shortcut (macOS + hardware keyboards).
-            Button("") { showingOmnibar = true }
-                .keyboardShortcut("k", modifiers: .command)
-                .hidden()
-        )
+        #if !os(macOS)
+            .background(
+                // Global search shortcut for hardware keyboards; on macOS the
+                // Go menu owns ⌘K.
+                Button("") { showingOmnibar = true }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .hidden()
+            )
+        #endif
         .onAppear {
             if ProcessInfo.processInfo.environment["TULA_OMNIBAR"] == "1" {
                 showingOmnibar = true

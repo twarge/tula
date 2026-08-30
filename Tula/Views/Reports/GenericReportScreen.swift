@@ -16,6 +16,7 @@ struct GenericReportScreen: View {
     @State private var state: LoadState<ReportResult> = .loading
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    @State private var pdfURL: URL?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,6 +28,7 @@ struct GenericReportScreen: View {
         }
         .navigationTitle(reportName)
         .toolbar {
+            PDFExportToolbar(url: pdfURL)
             OpenInDeskToolbar(route: .queryReport(name: reportName, extra: [:]))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
@@ -142,6 +144,9 @@ struct GenericReportScreen: View {
             if !model.isDemo {
                 SessionCache.saveReportSnapshot(result, forKey: cacheKey)
             }
+            pdfURL = ReportPDF.render(
+                title: reportName, subtitle: nil, result: result,
+                fallbackCurrency: model.fallbackCurrencyCode)
         } catch {
             if case .loaded = state {} else {
                 state = .failed(error.localizedDescription)

@@ -146,7 +146,8 @@ struct ReportTableView: View {
                 options: column.fieldtype == .link ? column.options : nil,
                 value: row[column],
                 currencyCode: ValueFormatting.currencyCode(
-                    options: column.options, rowValues: row.values, fallback: fallbackCurrency)
+                    options: column.options, rowValues: row.values, fallback: fallbackCurrency),
+                precision: column.precision
             )
             .lineLimit(1)
         }

@@ -10,6 +10,7 @@ struct FieldValueView: View {
     var options: String?
     let value: FrappeValue?
     var currencyCode: String?
+    var precision: Int?
     /// Links render as navigation; callers inside non-navigable contexts turn
     /// this off to get plain text.
     var linkEnabled = true
@@ -74,7 +75,9 @@ struct FieldValueView: View {
     }
 
     private var formatted: String {
-        ValueFormatting.string(for: value, fieldtype: fieldtype, currencyCode: currencyCode)
+        ValueFormatting.string(
+            for: value, fieldtype: fieldtype, currencyCode: currencyCode,
+            precision: precision)
     }
 
     private var linkTarget: Route? {

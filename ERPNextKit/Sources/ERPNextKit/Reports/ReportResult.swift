@@ -10,6 +10,7 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
     public var options: String?
     public var width: Double
     public var hidden: Bool
+    public var precision: Int?
 
     public var id: String { fieldname }
 
@@ -21,6 +22,7 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
             options = dict["options"]?.nonEmptyString
             width = dict["width"]?.doubleValue ?? 120
             hidden = dict["hidden"]?.boolValue ?? false
+            precision = dict["precision"]?.intValue
         } else if let string = value.stringValue {
             // "Label:Fieldtype/Options:Width", with every part after Label optional.
             let parts = string.split(separator: ":", omittingEmptySubsequences: false)
@@ -37,6 +39,7 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
             }
             width = parts.count > 2 ? Double(parts[2]) ?? 120 : 120
             hidden = false
+            precision = nil
         } else {
             return nil
         }

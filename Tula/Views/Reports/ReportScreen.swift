@@ -14,6 +14,7 @@ struct ReportScreen: View {
     @State private var state: LoadState<ReportResult> = .loading
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    @State private var pdfURL: URL?
 
     private struct TaskKey: Hashable {
         var generation: Int
@@ -37,6 +38,7 @@ struct ReportScreen: View {
         }
         .navigationTitle(descriptor.title)
         .toolbar {
+            PDFExportToolbar(url: pdfURL)
             OpenInDeskToolbar(route: .report(descriptor))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
@@ -137,6 +139,12 @@ struct ReportScreen: View {
             if !model.isDemo {
                 SessionCache.saveReportSnapshot(result, forKey: cacheKey)
             }
+            pdfURL = ReportPDF.render(
+                title: descriptor.title,
+                subtitle: [
+                    model.filterState.company?.name, model.filterState.fiscalYear?.name,
+                ].compactMap { $0 }.joined(separator: " · "),
+                result: result, fallbackCurrency: model.fallbackCurrencyCode)
         } catch {
             // Keep the cached/snapshot content on refresh failure (offline);
             // only surface errors when there's nothing to show.
