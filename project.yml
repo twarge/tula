@@ -38,6 +38,7 @@ targets:
       path: Tula/Info.plist
       properties:
         CFBundleDisplayName: Tula
+        LSApplicationCategoryType: public.app-category.finance
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         # HTTPS only, except plain-HTTP ERPNext dev servers on the local network.

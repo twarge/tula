@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ERPNextKit tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Run package tests
+        run: swift test --package-path ERPNextKit
+
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: macos-26
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            destination: generic/platform=macOS
+          - name: iOS Simulator
+            destination: generic/platform=iOS Simulator
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      # The Xcode project is generated, not committed (project.yml is the
+      # source of truth).
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project Tula.xcodeproj \
+            -scheme Tula \
+            -configuration Release \
+            -destination '${{ matrix.destination }}' \
+            CODE_SIGNING_ALLOWED=NO
