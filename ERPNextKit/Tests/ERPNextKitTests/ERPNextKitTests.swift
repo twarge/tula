@@ -477,6 +477,19 @@ final class SortCountAndSnapshotTests: XCTestCase {
     }
 }
 
+final class WriteClientTests: XCTestCase {
+    func testMultipartBodyShape() {
+        let body = WriteClient.multipartBody(
+            boundary: "B", fileName: "a b.pdf", fileData: Data("XYZ".utf8),
+            fields: ["doctype": "Sales Invoice", "docname": "SINV-1", "is_private": "1"])
+        let text = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(text.contains("--B\r\nContent-Disposition: form-data; name=\"doctype\"\r\n\r\nSales Invoice\r\n"))
+        XCTAssertTrue(text.contains("name=\"file\"; filename=\"a b.pdf\""))
+        XCTAssertTrue(text.contains("XYZ\r\n--B--\r\n"))
+        XCTAssertTrue(text.hasSuffix("--B--\r\n"))
+    }
+}
+
 final class DemoDataSourceTests: XCTestCase {
     func testDemoServesEveryFixtureThroughTheLivePipeline() async throws {
         let demo = DemoDataSource()

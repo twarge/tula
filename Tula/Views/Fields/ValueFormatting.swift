@@ -106,6 +106,10 @@ enum ValueFormatting {
         wireDate.string(from: date)
     }
 
+    static func wireDatetimeString(_ date: Date) -> String {
+        wireDatetime.string(from: date)
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated

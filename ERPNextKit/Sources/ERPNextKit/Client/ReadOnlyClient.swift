@@ -47,6 +47,7 @@ public enum ReadMethod: String, Sendable, CaseIterable {
     case numberCardResult = "frappe.desk.doctype.number_card.number_card.get_result"
     case openCount = "frappe.desk.notifications.get_open_count"
     case loggedUser = "frappe.auth.get_logged_user"
+    case isFollowed = "frappe.desk.form.document_follow.is_document_followed"
     case dashboardChartGet = "frappe.desk.doctype.dashboard_chart.dashboard_chart.get"
 }
 

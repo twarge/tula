@@ -130,6 +130,8 @@ public protocol DataSource: Sendable {
     func openCounts(doctype: String, name: String) async throws -> [String: Int]?
     /// The signed-in user's identifier (email), when the source knows it.
     func loggedUser() async throws -> String?
+    /// Whether `user` follows the document (nil when unknown).
+    func isFollowing(doctype: String, name: String, user: String) async throws -> Bool?
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -184,6 +186,10 @@ extension DataSource {
     }
 
     public func loggedUser() async throws -> String? {
+        nil
+    }
+
+    public func isFollowing(doctype: String, name: String, user: String) async throws -> Bool? {
         nil
     }
 
@@ -330,6 +336,14 @@ public struct LiveDataSource: DataSource {
     public func loggedUser() async throws -> String? {
         let data = try await client.data(for: .method(.loggedUser, parameters: [:]))
         return try FrappeValue.decode(from: data).objectValue?["message"]?.nonEmptyString
+    }
+
+    public func isFollowing(doctype: String, name: String, user: String) async throws -> Bool? {
+        let data = try await client.data(
+            for: .method(
+                .isFollowed,
+                parameters: ["doctype": doctype, "doc_name": name, "user": user]))
+        return try FrappeValue.decode(from: data).objectValue?["message"]?.boolValue
     }
 
     public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {

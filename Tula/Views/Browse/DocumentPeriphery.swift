@@ -44,6 +44,7 @@ struct DocumentPeriphery: Sendable {
     var assignees: [String] = []
     var tags: [String] = []
     var shares: [String] = []
+    var likedBy: [String] = []
     var connections: [Connection] = []
     var attachments: [Attachment] = []
     var comments: [Comment] = []
@@ -67,6 +68,11 @@ struct DocumentPeriphery: Sendable {
             let decoded = try? FrappeValue.decode(from: Data(raw.utf8)),
             let entries = decoded.arrayValue {
             periphery.assignees = entries.compactMap { $0.nonEmptyString }
+        }
+        if let raw = document.raw["_liked_by"]?.nonEmptyString,
+            let decoded = try? FrappeValue.decode(from: Data(raw.utf8)),
+            let entries = decoded.arrayValue {
+            periphery.likedBy = entries.compactMap { $0.nonEmptyString }
         }
         if let raw = document.raw["_user_tags"]?.nonEmptyString {
             periphery.tags = raw.split(separator: ",").map {
@@ -280,17 +286,11 @@ struct PeripheryBar: View {
                                 }
                             }
                     }
-                    if let session = model.writeSession,
-                        !periphery.assignees.contains(session.user) {
-                        Button {
-                            write {
-                                try await session.assignToMe(
-                                    doctype: doctype, name: documentName)
-                            }
-                        } label: {
-                            chip(label: "Assign to me", systemImage: "person.badge.plus")
-                        }
-                        .buttonStyle(.plain)
+                    if model.writeSession != nil {
+                        AssignChip(
+                            alreadyAssigned: periphery.assignees,
+                            doctype: doctype, documentName: documentName,
+                            perform: write)
                     }
                     ForEach(periphery.tags, id: \.self) { tag in
                         chip(label: tag, systemImage: "tag")
@@ -315,14 +315,31 @@ struct PeripheryBar: View {
                             }
                         }
                     }
-                    if !periphery.attachments.isEmpty {
+                    if !periphery.likedBy.isEmpty || model.writeSession != nil {
+                        LikeChip(
+                            likedBy: periphery.likedBy,
+                            doctype: doctype, documentName: documentName,
+                            perform: write)
+                    }
+                    if !periphery.attachments.isEmpty || model.writeSession != nil {
                         AttachmentsChip(
                             attachments: periphery.attachments,
+                            doctype: doctype, documentName: documentName,
+                            perform: write,
                             previewURL: $previewURL,
                             downloadError: $downloadError)
                     }
-                    if !periphery.shares.isEmpty {
-                        SharesChip(shares: periphery.shares)
+                    if !periphery.shares.isEmpty || model.writeSession != nil {
+                        SharesChip(
+                            shares: periphery.shares,
+                            doctype: doctype, documentName: documentName,
+                            perform: write)
+                    }
+                    if model.writeSession != nil {
+                        FollowChip(
+                            doctype: doctype, documentName: documentName, perform: write)
+                        RemindChip(
+                            doctype: doctype, documentName: documentName, perform: write)
                     }
                     Text(documentName)
                         .font(.caption)
@@ -350,14 +367,19 @@ struct PeripheryBar: View {
     }
 }
 
-/// Paperclip chip → popover listing attachments; tap downloads and previews.
+/// Paperclip chip → popover listing attachments; tap downloads and previews;
+/// unlocked adds upload and delete.
 private struct AttachmentsChip: View {
     let attachments: [DocumentPeriphery.Attachment]
+    var doctype: String = ""
+    var documentName: String = ""
+    var perform: (@escaping () async throws -> Void) -> Void = { _ in }
     @Binding var previewURL: URL?
     @Binding var downloadError: String?
 
     @Environment(AppModel.self) private var model
     @State private var showingPopover = false
+    @State private var showingImporter = false
 
     var body: some View {
         Button {
@@ -373,6 +395,11 @@ private struct AttachmentsChip: View {
         .buttonStyle(.plain)
         .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
+                if attachments.isEmpty {
+                    Text("No attachments")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(attachments) { attachment in
                     Button {
                         Task { await open(attachment) }
@@ -400,12 +427,53 @@ private struct AttachmentsChip: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        if let session = model.writeSession {
+                            Button(role: .destructive) {
+                                showingPopover = false
+                                perform {
+                                    try await session.deleteAttachment(
+                                        fileDocName: attachment.name)
+                                }
+                            } label: {
+                                Label("Delete Attachment", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                if model.writeSession != nil {
+                    Divider()
+                    Button {
+                        showingImporter = true
+                    } label: {
+                        Label("Add Attachment…", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
                 }
             }
             .padding(12)
             #if os(macOS)
                 .frame(minWidth: 300)
             #endif
+        }
+        .fileImporter(
+            isPresented: $showingImporter, allowedContentTypes: [.item]
+        ) { result in
+            guard let session = model.writeSession,
+                case .success(let url) = result
+            else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                downloadError = "Couldn't read \(url.lastPathComponent)"
+                return
+            }
+            showingPopover = false
+            perform {
+                try await session.uploadAttachment(
+                    fileName: url.lastPathComponent, data: data,
+                    doctype: doctype, name: documentName)
+            }
         }
     }
 
@@ -437,11 +505,18 @@ private struct AttachmentsChip: View {
     }
 }
 
-/// Share chip → popover listing who the document is shared with (read-only).
+/// Share chip → who the document is shared with; unlocked adds share/unshare
+/// with a user search.
 private struct SharesChip: View {
     let shares: [String]
+    var doctype: String = ""
+    var documentName: String = ""
+    var perform: (@escaping () async throws -> Void) -> Void = { _ in }
 
+    @Environment(AppModel.self) private var model
     @State private var showingPopover = false
+    @State private var query = ""
+    @State private var results: [LinkOption] = []
 
     var body: some View {
         Button {
@@ -459,14 +534,274 @@ private struct SharesChip: View {
                 Text("Shared with")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if shares.isEmpty {
+                    Text("Not shared")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(shares, id: \.self) { share in
-                    Label(share, systemImage: "person.crop.circle")
-                        .font(.callout)
+                    HStack {
+                        Label(share, systemImage: "person.crop.circle")
+                            .font(.callout)
+                        Spacer()
+                        if let session = model.writeSession {
+                            Button {
+                                showingPopover = false
+                                perform {
+                                    try await session.removeShare(
+                                        doctype: doctype, name: documentName, user: share)
+                                }
+                            } label: {
+                                Image(systemName: "xmark.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if model.writeSession != nil {
+                    Divider()
+                    TextField("Share with user…", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                    ForEach(results.prefix(5)) { option in
+                        Button {
+                            showingPopover = false
+                            perform {
+                                try await model.writeSession?.addShare(
+                                    doctype: doctype, name: documentName,
+                                    user: option.value)
+                            }
+                        } label: {
+                            Label(option.value, systemImage: "plus.circle")
+                                .font(.callout)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .padding(12)
             #if os(macOS)
-                .frame(minWidth: 240)
+                .frame(minWidth: 280)
+            #endif
+            .task(id: query) {
+                guard !query.isEmpty else {
+                    results = []
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+                if Task.isCancelled { return }
+                results =
+                    (try? await model.dataSource.searchLink(doctype: "User", query: query))
+                    ?? []
+            }
+        }
+    }
+}
+
+/// Heart chip: like count, filled when the signed-in user likes the
+/// document; tap toggles when unlocked.
+private struct LikeChip: View {
+    let likedBy: [String]
+    var doctype: String = ""
+    var documentName: String = ""
+    var perform: (@escaping () async throws -> Void) -> Void = { _ in }
+
+    @Environment(AppModel.self) private var model
+
+    private var likedByMe: Bool {
+        guard let user = model.writeSession?.user else { return false }
+        return likedBy.contains(user)
+    }
+
+    var body: some View {
+        Button {
+            guard let session = model.writeSession else { return }
+            let target = !likedByMe
+            perform {
+                try await session.toggleLike(
+                    doctype: doctype, name: documentName, liked: target)
+            }
+        } label: {
+            Label("\(likedBy.count)", systemImage: likedByMe ? "heart.fill" : "heart")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.quaternary.opacity(0.6), in: Capsule())
+                .foregroundStyle(likedByMe ? AnyShapeStyle(.pink) : AnyShapeStyle(.primary))
+        }
+        .buttonStyle(.plain)
+        .disabled(model.writeSession == nil)
+    }
+}
+
+/// Assign chip: assign to me, or search users to assign.
+private struct AssignChip: View {
+    let alreadyAssigned: [String]
+    var doctype: String = ""
+    var documentName: String = ""
+    var perform: (@escaping () async throws -> Void) -> Void = { _ in }
+
+    @Environment(AppModel.self) private var model
+    @State private var showingPopover = false
+    @State private var query = ""
+    @State private var results: [LinkOption] = []
+
+    var body: some View {
+        Button {
+            showingPopover = true
+        } label: {
+            Label("Assign", systemImage: "person.badge.plus")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.tint.opacity(0.15), in: Capsule())
+                .foregroundStyle(.tint)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let session = model.writeSession,
+                    !alreadyAssigned.contains(session.user) {
+                    Button {
+                        showingPopover = false
+                        perform {
+                            try await session.assignToMe(
+                                doctype: doctype, name: documentName)
+                        }
+                    } label: {
+                        Label("Assign to me", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    .buttonStyle(.borderless)
+                    Divider()
+                }
+                TextField("Assign user…", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                ForEach(results.prefix(5)) { option in
+                    Button {
+                        showingPopover = false
+                        perform {
+                            try await model.writeSession?.assign(
+                                doctype: doctype, name: documentName,
+                                users: [option.value])
+                        }
+                    } label: {
+                        Label(option.value, systemImage: "plus.circle")
+                            .font(.callout)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(12)
+            #if os(macOS)
+                .frame(minWidth: 280)
+            #endif
+            .task(id: query) {
+                guard !query.isEmpty else {
+                    results = []
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+                if Task.isCancelled { return }
+                results =
+                    (try? await model.dataSource.searchLink(doctype: "User", query: query))
+                    ?? []
+            }
+        }
+    }
+}
+
+/// Follow chip: server-side document follow (daily digest in Desk).
+private struct FollowChip: View {
+    var doctype: String = ""
+    var documentName: String = ""
+    var perform: (@escaping () async throws -> Void) -> Void = { _ in }
+
+    @Environment(AppModel.self) private var model
+    @State private var following: Bool?
+
+    var body: some View {
+        Button {
+            guard let session = model.writeSession else { return }
+            let target = !(following ?? false)
+            perform {
+                try await session.setFollowing(
+                    doctype: doctype, name: documentName, following: target)
+            }
+            following = target
+        } label: {
+            Label(
+                following == true ? "Following" : "Follow",
+                systemImage: following == true ? "bookmark.fill" : "bookmark"
+            )
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.quaternary.opacity(0.6), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .task {
+            guard let session = model.writeSession else { return }
+            following =
+                (try? await model.dataSource.isFollowing(
+                    doctype: doctype, name: documentName, user: session.user)) ?? nil
+        }
+    }
+}
+
+/// Bell chip: create a server-side reminder for this document.
+private struct RemindChip: View {
+    var doctype: String = ""
+    var documentName: String = ""
+    var perform: (@escaping () async throws -> Void) -> Void = { _ in }
+
+    @Environment(AppModel.self) private var model
+    @State private var showingPopover = false
+    @State private var remindAt = Date().addingTimeInterval(24 * 3600)
+    @State private var note = ""
+
+    var body: some View {
+        Button {
+            showingPopover = true
+        } label: {
+            Label("Remind", systemImage: "bell")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.quaternary.opacity(0.6), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Remind me about \(documentName)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                DatePicker(
+                    "When", selection: $remindAt,
+                    displayedComponents: [.date, .hourAndMinute])
+                TextField("Note (optional)", text: $note)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Spacer()
+                    Button("Set Reminder") {
+                        guard let session = model.writeSession else { return }
+                        let when = ValueFormatting.wireDatetimeString(remindAt)
+                        let description =
+                            note.isEmpty ? "Check \(doctype) \(documentName)" : note
+                        showingPopover = false
+                        perform {
+                            try await session.createReminder(
+                                remindAt: when, description: description,
+                                doctype: doctype, name: documentName)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(12)
+            #if os(macOS)
+                .frame(minWidth: 300)
             #endif
         }
     }
@@ -483,6 +818,8 @@ struct PeripheryTrailingSections: View {
     @State private var commentDraft = ""
     @State private var isPostingComment = false
     @State private var commentError: String?
+    @State private var editingCommentID: String?
+    @State private var editDraft = ""
 
     var body: some View {
         if !periphery.connections.isEmpty {
@@ -547,9 +884,40 @@ struct PeripheryTrailingSections: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            Text(comment.content)
-                                .font(.callout)
-                                .textSelection(.enabled)
+                            if editingCommentID == comment.id {
+                                TextField("Comment", text: $editDraft, axis: .vertical)
+                                    .textFieldStyle(.roundedBorder)
+                                    .lineLimit(1...4)
+                                HStack {
+                                    Button("Cancel") { editingCommentID = nil }
+                                    Button("Save") { saveEditedComment(comment) }
+                                        .buttonStyle(.borderedProminent)
+                                        .disabled(
+                                            editDraft.trimmingCharacters(in: .whitespaces)
+                                                .isEmpty)
+                                }
+                                .controlSize(.small)
+                            } else {
+                                Text(comment.content)
+                                    .font(.callout)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .contextMenu {
+                            if let session = model.writeSession,
+                                comment.author == session.user {
+                                Button {
+                                    editDraft = comment.content
+                                    editingCommentID = comment.id
+                                } label: {
+                                    Label("Edit Comment", systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    deleteComment(comment, session: session)
+                                } label: {
+                                    Label("Delete Comment", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
@@ -587,6 +955,36 @@ struct PeripheryTrailingSections: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             } label: {
                 Text("Activity").font(.headline).padding(.bottom, 2)
+            }
+        }
+    }
+
+    private func saveEditedComment(_ comment: DocumentPeriphery.Comment) {
+        guard let session = model.writeSession else { return }
+        let content = editDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        Task {
+            do {
+                try await session.updateComment(name: comment.id, content: content)
+                editingCommentID = nil
+                commentError = nil
+                onMutate()
+            } catch {
+                commentError = error.localizedDescription
+            }
+        }
+    }
+
+    private func deleteComment(
+        _ comment: DocumentPeriphery.Comment, session: WriteSession
+    ) {
+        Task {
+            do {
+                try await session.deleteComment(name: comment.id)
+                commentError = nil
+                onMutate()
+            } catch {
+                commentError = error.localizedDescription
             }
         }
     }

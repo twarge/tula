@@ -340,6 +340,7 @@ enum DemoFixtures {
               "name": "ACC-SINV-2025-00042",
               "docstatus": 1,
               "_assign": "[\"tom@twarge.com\"]",
+              "_liked_by": "[\"molly@windpower.example\"]",
               "_user_tags": ",wholesale,priority",
               "customer": "Northwind Research",
               "customer_name": "Northwind Research",
