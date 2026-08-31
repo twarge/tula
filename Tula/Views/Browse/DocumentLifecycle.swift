@@ -21,6 +21,7 @@ struct LifecycleCluster: View {
     @State private var renameRequested = false
     @State private var newName = ""
     @State private var busy = false
+    @State private var showingAmend = false
     @State private var errorMessage: String?
 
     private enum Pending: Identifiable {
@@ -73,6 +74,13 @@ struct LifecycleCluster: View {
                         .controlSize(.small)
                         .tint(.red)
                 }
+                if periphery.docstatus == 2 {
+                    // Desk's amend: a draft copy carrying amended_from,
+                    // opened for editing before anything hits the server.
+                    Button("Amend") { showingAmend = true }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
                 Menu {
                     Button {
                         duplicate()
@@ -122,6 +130,15 @@ struct LifecycleCluster: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Sets a new ID for this \(doctype). Links elsewhere are updated by the server.")
+            }
+            .sheet(isPresented: $showingAmend) {
+                NewDocumentSheet(
+                    doctype: doctype,
+                    seed: WriteSession.draftCopy(
+                        of: documentRaw, doctype: doctype, amendedFrom: name)
+                ) { created in
+                    model.pendingRoute = .document(doctype: doctype, name: created)
+                }
             }
             .alert(
                 "Couldn't Complete",

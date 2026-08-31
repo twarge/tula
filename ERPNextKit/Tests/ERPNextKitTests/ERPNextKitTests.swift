@@ -536,6 +536,16 @@ final class WriteClientTests: XCTestCase {
             ["party": "ACME", "party_type": "Supplier"])
     }
 
+    func testAmendSeed() throws {
+        let doc = try Document.list(from: Data(DemoFixtures.salesInvoiceDocs.utf8))[0]
+        let seed = WriteSession.draftCopy(
+            of: doc.raw, doctype: "Sales Invoice", amendedFrom: doc.name)
+        XCTAssertEqual(seed["amended_from"]?.stringValue, "ACC-SINV-2025-00042")
+        XCTAssertNil(seed["name"])
+        XCTAssertNil(seed["docstatus"])
+        XCTAssertEqual(seed["doctype"]?.stringValue, "Sales Invoice")
+    }
+
     func testDuplicableRawStripsSystemFields() throws {
         let doc = try Document.list(from: Data(DemoFixtures.salesInvoiceDocs.utf8))[0]
         let copy = WriteSession.duplicableRaw(doc.raw, doctype: "Sales Invoice")

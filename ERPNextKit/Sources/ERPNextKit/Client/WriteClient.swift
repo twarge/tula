@@ -314,12 +314,11 @@ extension WriteSession {
             ?? newName
     }
 
-    /// Duplicate: insert a copy with system fields stripped; returns the new
-    /// document's name.
-    public func duplicate(documentRaw: [String: FrappeValue], doctype: String) async throws
-        -> String {
-        let copy = Self.duplicableRaw(documentRaw, doctype: doctype)
-        let json = try FrappeValue.object(copy).encodedJSONString()
+    /// Create a document (W4). Naming stays server-side (`__newname` carries
+    /// a user-supplied ID for prompt-named DocTypes); returns the assigned
+    /// name.
+    public func insert(documentRaw: [String: FrappeValue]) async throws -> String {
+        let json = try FrappeValue.object(documentRaw).encodedJSONString()
         let data = try await client.call(.insertDocument, parameters: ["doc": json])
         guard
             let name = try FrappeValue.decode(from: data).objectValue?["message"]?
@@ -328,6 +327,25 @@ extension WriteSession {
             throw ERPNextError(message: "The server did not return the new document's name.")
         }
         return name
+    }
+
+    /// Duplicate: insert a copy with system fields stripped; returns the new
+    /// document's name.
+    public func duplicate(documentRaw: [String: FrappeValue], doctype: String) async throws
+        -> String {
+        try await insert(documentRaw: Self.duplicableRaw(documentRaw, doctype: doctype))
+    }
+
+    /// A draft copy suitable for creation flows: system fields stripped;
+    /// with `amendedFrom`, the amend seed (Desk's amended-copy pattern).
+    public static func draftCopy(
+        of raw: [String: FrappeValue], doctype: String, amendedFrom: String? = nil
+    ) -> [String: FrappeValue] {
+        var copy = duplicableRaw(raw, doctype: doctype)
+        if let amendedFrom {
+            copy["amended_from"] = .string(amendedFrom)
+        }
+        return copy
     }
 
     /// Apply a workflow transition (Approve, Reject, …) to the document.

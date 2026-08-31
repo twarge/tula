@@ -156,8 +156,9 @@ the full collaboration surface (comments, assignments, tags, shares, likes, foll
 attachments, reminders) and W2 the document lifecycle (submit, cancel, delete, rename via
 `update_document_title`, duplicate via `frappe.client.insert`, and metadata-driven workflow
 transitions via `apply_workflow`) — every lifecycle action behind an explicit confirmation.
-W3 added field editing as an explicit edit session (below). Document creation (W4) remains
-out of scope and impossible by construction.
+W3 added field editing as an explicit edit session, and W4 document creation — Quick Entry
+and full-form creation sheets, plus amend — completing the write surface for documents.
+Bulk operations and settings writes (W5) remain out of scope.
 
 **For any further writes**: keep this structure — do not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
 enumerated mutation whitelist (save/submit/cancel/amend), a distinct capability protocol
@@ -444,10 +445,20 @@ store the returned `file_url`. Deferred: client-side mandatory validation (the s
 reports it inline), Time as a plain text field, and HTML/markdown fields editing as
 plain text.
 
-**W4 — Creation (M, after W3).** New-document buttons on lists/workspaces; Quick Entry
-sheets generated from the meta's quick-entry fields (Desk's own compact-create pattern);
-full blank form from meta defaults; naming stays server-side. Amend lands here (create the
-amended copy, open it as an editable draft).
+**W4 — Creation (M, after W3). *Shipped.*** New-document buttons on lists/workspaces; Quick
+Entry sheets generated from the meta's quick-entry fields (Desk's own compact-create
+pattern); full blank form from meta defaults; naming stays server-side. Amend lands here
+(create the amended copy, open it as an editable draft).
+
+*As built:* one creation sheet reusing the W3 edit machinery — an `EditSession` over a
+draft seeded from convention-safe metadata defaults (literals, Today/Now; session
+specials like `:Company` stay server-side and fill on insert). Quick Entry renders the
+same generic form over a synthetic meta filtered to the mandatory +
+`allow_in_quick_entry` fields, with Edit Full Form as the escape hatch; prompt-named
+DocTypes get an ID field feeding `__newname`; creation posts through the existing
+`frappe.client.insert`. The "+" lives on list toolbars (with the gate lock now available
+there too), and Amend appears on cancelled documents, seeding the sheet with the
+stripped draft copy carrying `amended_from` — nothing touches the server until Create.
 
 **W5 — Settings & bulk (M).** Persist list columns/sort back to List View Settings and
 user settings; save filter presets (List Filter insert); bulk list operations

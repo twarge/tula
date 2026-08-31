@@ -25,6 +25,7 @@ struct ListScreen: View {
     @State private var quickFilters: [String: String] = [:]
     /// User's in-app sort choice; nil = saved/default sort.
     @State private var sortOverride: SortSpec?
+    @State private var showingNewDocument = false
     @State private var isLoadingMore = false
     @State private var totalCount: Int?
     /// Detailed filter-editor conditions (Desk's "Filter" popover).
@@ -93,10 +94,17 @@ struct ListScreen: View {
         .searchable(text: $searchText, prompt: Text("Search \(doctype)"))
         .toolbar {
             SearchToolbar()
+            NewDocumentToolbar(doctype: doctype, showingNew: $showingNewDocument)
             filterToolbar
             sortToolbar
+            WriteGateToolbar()
             OpenInDeskToolbar(route: .doctypeList(doctype))
             RefreshToolbar(lastUpdated: lastUpdated, detail: countDetail) { refreshToken += 1 }
+        }
+        .sheet(isPresented: $showingNewDocument) {
+            NewDocumentSheet(doctype: doctype) { created in
+                model.pendingRoute = .document(doctype: doctype, name: created)
+            }
         }
         .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
         .task(id: taskKey) {
@@ -111,6 +119,11 @@ struct ListScreen: View {
             if !searchText.isEmpty {
                 try? await Task.sleep(for: .milliseconds(300))
                 if Task.isCancelled { return }
+            }
+            // Verification hook: TULA_NEW_PREVIEW=1 opens the creation
+            // sheet (Create stays locked without a write session).
+            if ProcessInfo.processInfo.environment["TULA_NEW_PREVIEW"] == "1" {
+                showingNewDocument = true
             }
             await load()
         }

@@ -55,6 +55,10 @@ public struct DocField: Sendable, Hashable, Identifiable {
     public var permlevel: Int { raw["permlevel"]?.intValue ?? 0 }
     public var readOnlyDependsOn: String? { raw["read_only_depends_on"]?.nonEmptyString }
     public var mandatoryDependsOn: String? { raw["mandatory_depends_on"]?.nonEmptyString }
+    /// Included in Desk's Quick Entry dialog (W4).
+    public var allowInQuickEntry: Bool { raw["allow_in_quick_entry"]?.boolValue ?? false }
+    /// The metadata default, uninterpreted ("Today", ":Company", literals).
+    public var defaultRaw: String? { raw["default"]?.nonEmptyString }
 
     public var selectChoices: [String] {
         guard fieldtype == .select, let options else { return [] }
@@ -97,6 +101,10 @@ public struct DocTypeMeta: Sendable, Hashable {
     public var isTree: Bool { raw["is_tree"]?.boolValue ?? false }
     /// Submittable documents carry docstatus (draft/submitted/cancelled).
     public var isSubmittable: Bool { raw["is_submittable"]?.boolValue ?? false }
+    /// Desk offers its compact-create dialog for these DocTypes (W4).
+    public var quickEntry: Bool { raw["quick_entry"]?.boolValue ?? false }
+    /// Naming rule; "prompt" means the user supplies the ID at creation.
+    public var autoname: String? { raw["autoname"]?.nonEmptyString }
 
     /// Desk's Connections tab: DocTypes linking back to this one.
     public var connectionLinks: [DocTypeLink] {
