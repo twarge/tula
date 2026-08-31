@@ -26,6 +26,13 @@ struct ListScreen: View {
     /// User's in-app sort choice; nil = saved/default sort.
     @State private var sortOverride: SortSpec?
     @State private var showingNewDocument = false
+    /// Multi-select for bulk operations (W5).
+    @State private var selection = Set<String>()
+    /// iOS-only manual selection mode (macOS Tables multi-select natively).
+    @State private var selectionMode = false
+    /// This device's column choice; nil = server List View Settings.
+    @State private var columnOverride: [String]?
+    @State private var settingsError: String?
     @State private var isLoadingMore = false
     @State private var totalCount: Int?
     /// Detailed filter-editor conditions (Desk's "Filter" popover).
@@ -82,6 +89,10 @@ struct ListScreen: View {
             case .loaded(let loaded):
                 VStack(spacing: 0) {
                     QuickFiltersBar(meta: loaded.meta, values: $quickFilters)
+                    BulkActionsBar(
+                        doctype: doctype, isSubmittable: loaded.meta.isSubmittable,
+                        selection: $selection,
+                        onDone: { refreshToken += 1 })
                     if loaded.rows.isEmpty {
                         emptyState
                     } else {
@@ -97,6 +108,21 @@ struct ListScreen: View {
             NewDocumentToolbar(doctype: doctype, showingNew: $showingNewDocument)
             filterToolbar
             sortToolbar
+            columnsToolbar
+            #if !os(macOS)
+                // Manual selection mode: EditButton's editMode environment
+                // leaks to the sidebar list on iPad and clears the sidebar
+                // selection, so selection is drawn by hand instead.
+                if model.writeSession != nil
+                    || ProcessInfo.processInfo.environment["TULA_EDIT_PREVIEW"] == "1" {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(selectionMode ? "Done" : "Select") {
+                            selectionMode.toggle()
+                            if !selectionMode { selection = [] }
+                        }
+                    }
+                }
+            #endif
             WriteGateToolbar()
             OpenInDeskToolbar(route: .doctypeList(doctype))
             RefreshToolbar(lastUpdated: lastUpdated, detail: countDetail) { refreshToken += 1 }
@@ -105,6 +131,16 @@ struct ListScreen: View {
             NewDocumentSheet(doctype: doctype) { created in
                 model.pendingRoute = .document(doctype: doctype, name: created)
             }
+        }
+        .alert(
+            "Couldn't Save Settings",
+            isPresented: Binding(
+                get: { settingsError != nil },
+                set: { if !$0 { settingsError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(settingsError ?? "")
         }
         .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
         .task(id: taskKey) {
@@ -135,7 +171,8 @@ struct ListScreen: View {
 
     private var cacheKey: String {
         let sort = sortOverride.map { "\($0.fieldname):\($0.descending)" } ?? "auto"
-        return "list|\(model.sourceGeneration)|\(doctype)|\(filtersKey)|\(sort)"
+        let columns = columnOverride?.joined(separator: ",") ?? "server"
+        return "list|\(model.sourceGeneration)|\(doctype)|\(filtersKey)|\(sort)|\(columns)"
     }
 
     /// Stable task-id component for both filter mechanisms.
@@ -222,6 +259,85 @@ struct ListScreen: View {
         }
     }
 
+    // MARK: Columns (W5: the list's gear, persistable to List View Settings)
+
+    @ToolbarContentBuilder
+    private var columnsToolbar: some ToolbarContent {
+        if case .loaded(let loaded) = state {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    ForEach(columnCandidates(loaded)) { field in
+                        Toggle(isOn: columnBinding(for: field, loaded: loaded)) {
+                            Text(field.label)
+                        }
+                    }
+                    Divider()
+                    if model.writeSession != nil {
+                        Button {
+                            saveColumns(loaded)
+                        } label: {
+                            Label("Save Columns to Server", systemImage: "arrow.up.doc")
+                        }
+                    }
+                    Button("Reset to Server Columns") {
+                        columnOverride = nil
+                    }
+                } label: {
+                    Label("Columns", systemImage: "slider.horizontal.3")
+                }
+                .menuIndicator(.hidden)
+                .help("Choose list columns")
+            }
+        }
+    }
+
+    private func columnCandidates(_ loaded: Loaded) -> [DocField] {
+        var fields = loaded.meta.fields.filter { $0.fieldtype.isPresentable && !$0.hidden }
+        for column in loaded.columns where !fields.contains(where: {
+            $0.fieldname == column.fieldname
+        }) {
+            fields.append(column)
+        }
+        return fields
+    }
+
+    private func columnBinding(for field: DocField, loaded: Loaded) -> Binding<Bool> {
+        Binding {
+            (columnOverride ?? loaded.columns.map(\.fieldname)).contains(field.fieldname)
+        } set: { isOn in
+            var current = columnOverride ?? loaded.columns.map(\.fieldname)
+            if isOn {
+                if !current.contains(field.fieldname) { current.append(field.fieldname) }
+            } else {
+                current.removeAll { $0 == field.fieldname }
+            }
+            columnOverride = current
+        }
+    }
+
+    /// Writes this device's column choice to the DocType's List View
+    /// Settings — the same document Desk's gear writes and every Tula
+    /// client already reads.
+    private func saveColumns(_ loaded: Loaded) {
+        guard let session = model.writeSession else { return }
+        let fieldnames = columnOverride ?? loaded.columns.map(\.fieldname)
+        let labels = Dictionary(
+            uniqueKeysWithValues: columnCandidates(loaded).map { ($0.fieldname, $0.label) })
+        let removed = loaded.columns.map(\.fieldname).filter { !fieldnames.contains($0) }
+        Task {
+            do {
+                try await session.saveListColumns(
+                    doctype: doctype, fieldnames: fieldnames, labels: labels,
+                    removed: removed)
+                columnOverride = nil
+                model.cache.invalidateMeta()
+                refreshToken += 1
+            } catch {
+                settingsError = error.localizedDescription
+            }
+        }
+    }
+
     private func sortCandidates(_ loaded: Loaded) -> [(fieldname: String, label: String)] {
         var seen = Set<String>()
         var candidates: [(String, String)] = []
@@ -278,7 +394,7 @@ struct ListScreen: View {
     @ViewBuilder
     private func listBody(_ loaded: Loaded) -> some View {
         #if os(macOS)
-            Table(loaded.rows, sortOrder: $tableSort) {
+            Table(loaded.rows, selection: $selection, sortOrder: $tableSort) {
                 TableColumn(
                     "Title",
                     sortUsing: DocumentFieldComparator(
@@ -349,12 +465,42 @@ struct ListScreen: View {
             }
         #else
             List(loaded.rows) { document in
-                NavigationLink(value: Route.document(doctype: doctype, name: document.name)) {
-                    rowLabel(document, loaded: loaded)
+                if selectionMode {
+                    HStack(spacing: 10) {
+                        Image(
+                            systemName: selection.contains(document.name)
+                                ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(
+                                selection.contains(document.name)
+                                    ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                            .imageScale(.large)
+                        rowLabel(document, loaded: loaded)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if selection.contains(document.name) {
+                            selection.remove(document.name)
+                        } else {
+                            selection.insert(document.name)
+                        }
+                    }
+                    .onAppear { maybeLoadMore(after: document, in: loaded) }
+                } else {
+                    NavigationLink(
+                        value: Route.document(doctype: doctype, name: document.name)
+                    ) {
+                        rowLabel(document, loaded: loaded)
+                    }
+                    .onAppear { maybeLoadMore(after: document, in: loaded) }
                 }
-                .onAppear { maybeLoadMore(after: document, in: loaded) }
             }
             .listStyle(.plain)
+            // Beta landmine #3: rows that morph between NavigationLink and
+            // plain content inside a live List keep the link's touch
+            // handling and swallow taps — rebuild the whole List on mode
+            // changes instead.
+            .id(selectionMode)
             .refreshable { await load() }
         #endif
     }
@@ -473,6 +619,10 @@ struct ListScreen: View {
                 }
                 if !mapped.isEmpty { columns = mapped }
             }
+            if let override = columnOverride {
+                let mapped = override.compactMap { meta.field(named: $0) }
+                if !mapped.isEmpty { columns = mapped }
+            }
 
             let sort = resolvedSort(bundle: bundle, meta: meta)
             let filters = activeFilters(meta: meta)
@@ -501,6 +651,20 @@ struct ListScreen: View {
             ]
             lastUpdated = Date()
             model.cache.setScreen(cacheKey, loaded)
+
+            // W5: an explicit in-app sort persists to Desk's per-user
+            // settings (merged over the existing blob), exactly as changing
+            // the sort in Desk would. Best-effort and silent, like Desk.
+            if let override = sortOverride, let session = model.writeSession,
+                override.fieldname != bundle.listSortBy
+                    || override.descending != (bundle.listSortDescending ?? true) {
+                let existing = bundle.userSettingsRaw
+                Task {
+                    try? await session.saveUserListSort(
+                        doctype: doctype, existingSettings: existing,
+                        sortBy: override.fieldname, descending: override.descending)
+                }
+            }
 
             totalCount = try? await model.dataSource.count(doctype, filters: filters)
         } catch {

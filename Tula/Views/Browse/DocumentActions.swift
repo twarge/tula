@@ -12,6 +12,9 @@ struct DocumentAction: Identifiable {
     enum Kind {
         case route(Route)
         case copy(String)
+        /// External hand-off (the Email action's mailto: with a Desk link —
+        /// no server write involved).
+        case url(URL)
     }
 
     var label: String
@@ -74,6 +77,22 @@ struct DocumentAction: Identifiable {
                     kind: .copy(
                         DeskURL.document(base: webBase, doctype: doctype, name: name)
                             .absoluteString)))
+            // Desk's Email action, as the write map specifies it: a mailto:
+            // hand-off carrying the Desk link — no server write.
+            var mail = URLComponents()
+            mail.scheme = "mailto"
+            mail.queryItems = [
+                URLQueryItem(name: "subject", value: "\(doctype) \(name)"),
+                URLQueryItem(
+                    name: "body",
+                    value: DeskURL.document(base: webBase, doctype: doctype, name: name)
+                        .absoluteString),
+            ]
+            if let mailURL = mail.url {
+                actions.append(
+                    DocumentAction(
+                        label: "Email…", systemImage: "envelope", kind: .url(mailURL)))
+            }
         }
         actions.append(
             DocumentAction(label: "Copy ID", systemImage: "doc.on.doc", kind: .copy(name)))
@@ -132,6 +151,10 @@ struct DocumentActionsCluster: View {
                     } label: {
                         Label(action.label, systemImage: action.systemImage)
                     }
+                case .url(let url):
+                    Link(destination: url) {
+                        Label(action.label, systemImage: action.systemImage)
+                    }
                 }
             }
         } label: {
@@ -161,6 +184,9 @@ struct DocumentActionsCluster: View {
                 label()
             }
             .buttonStyle(.plain)
+        case .url(let url):
+            Link(destination: url) { label() }
+                .buttonStyle(.plain)
         }
     }
 }

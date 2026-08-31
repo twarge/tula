@@ -149,7 +149,11 @@ struct FilterEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppModel.self) private var model
     @State private var draft: [FilterCondition] = []
-    @State private var presets: [(name: String, conditions: [FilterCondition])] = []
+    @State private var presets: [(docName: String, name: String, conditions: [FilterCondition])] =
+        []
+    @State private var presetPromptShown = false
+    @State private var presetName = ""
+    @State private var presetError: String?
 
     private var fields: [FilterableField] { FilterableField.all(for: meta) }
 
@@ -176,15 +180,41 @@ struct FilterEditorView: View {
                 }
                 .buttonStyle(.borderless)
 
-                if !presets.isEmpty {
+                if !presets.isEmpty || model.writeSession != nil {
                     Menu {
-                        ForEach(presets, id: \.name) { preset in
+                        ForEach(presets, id: \.docName) { preset in
                             Button(preset.name) { draft = preset.conditions }
+                        }
+                        if let session = model.writeSession {
+                            if !presets.isEmpty { Divider() }
+                            Button {
+                                presetName = ""
+                                presetPromptShown = true
+                            } label: {
+                                Label("Save Preset…", systemImage: "bookmark.fill")
+                            }
+                            .disabled(!draft.contains { $0.listFilter() != nil })
+                            if !presets.isEmpty {
+                                Menu("Delete Preset") {
+                                    ForEach(presets, id: \.docName) { preset in
+                                        Button(preset.name, role: .destructive) {
+                                            deletePreset(preset.docName, session: session)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } label: {
                         Label("Presets", systemImage: "bookmark")
                     }
                     .fixedSize()
+                }
+
+                if let presetError {
+                    Text(presetError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -210,6 +240,58 @@ struct FilterEditorView: View {
         .task {
             await loadPresets()
         }
+        .alert("Save Filter Preset", isPresented: $presetPromptShown) {
+            TextField("Preset name", text: $presetName)
+            Button("Save") { savePreset() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the current conditions as a Desk filter preset for \(meta.name).")
+        }
+    }
+
+    /// W5: the current conditions become a Desk "List Filter" document —
+    /// visible in the web UI's saved filters too.
+    private func savePreset() {
+        guard let session = model.writeSession else { return }
+        let trimmed = presetName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let rows: [FrappeValue] = draft.compactMap { condition in
+            condition.listFilter().map { filter in
+                .array([
+                    .string(meta.name), .string(filter.fieldname), .string(filter.op),
+                    filter.value,
+                ])
+            }
+        }
+        guard !rows.isEmpty,
+            let filtersJSON = try? FrappeValue.array(rows).encodedJSONString()
+        else { return }
+        Task {
+            do {
+                _ = try await session.insert(documentRaw: [
+                    "doctype": .string("List Filter"),
+                    "filter_name": .string(trimmed),
+                    "reference_doctype": .string(meta.name),
+                    "filters": .string(filtersJSON),
+                ])
+                presetError = nil
+                await loadPresets()
+            } catch {
+                presetError = error.localizedDescription
+            }
+        }
+    }
+
+    private func deletePreset(_ docName: String, session: WriteSession) {
+        Task {
+            do {
+                try await session.deleteDocument(doctype: "List Filter", name: docName)
+                presetError = nil
+                await loadPresets()
+            } catch {
+                presetError = error.localizedDescription
+            }
+        }
     }
 
     /// Desk's saved filters (the List Filter DocType) offered read-only.
@@ -228,7 +310,7 @@ struct FilterEditorView: View {
             else { return nil }
             let conditions = rows.compactMap { Self.condition(from: $0) }
             guard !conditions.isEmpty else { return nil }
-            return (label, conditions)
+            return (doc.name, label, conditions)
         }
     }
 

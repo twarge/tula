@@ -31,6 +31,15 @@ public enum WriteMethod: String, Sendable, CaseIterable {
     /// document's `modified` timestamp doubles as the optimistic lock — a
     /// stale draft raises TimestampMismatchError instead of overwriting.
     case saveDocument = "frappe.desk.form.save.savedocs"
+    // W5 — settings & bulk (ARCHITECTURE §12 write map).
+    /// Per-user Desk view settings (list sort, grid columns) for a DocType.
+    case saveUserSettings = "frappe.model.utils.user_settings.save"
+    /// Desk's list-column settings (the List View Settings document).
+    case saveListViewSettings = "frappe.desk.listview.save_listview_settings"
+    case bulkDelete = "frappe.desk.reportview.delete_items"
+    case bulkSubmitCancel = "frappe.desk.doctype.bulk_update.bulk_update.submit_cancel_action"
+    case bulkAssign = "frappe.desk.form.assign_to.add_multiple"
+    case bulkTag = "frappe.desk.doctype.tag.tag.add_tags"
 }
 
 /// The only type in the kit able to issue a non-GET request. Deliberately
@@ -416,5 +425,103 @@ extension WriteSession {
             throw ERPNextError(message: "The server did not return the uploaded file's URL.")
         }
         return url
+    }
+}
+
+
+// MARK: - W5 settings & bulk operations
+
+public enum BulkDocstatusAction: String, Sendable {
+    case submit
+    case cancel
+}
+
+extension WriteSession {
+    /// Persist the user's list sort into their Desk `user_settings` for the
+    /// DocType — merged over the existing blob so GridView and the rest of
+    /// the settings survive.
+    public func saveUserListSort(
+        doctype: String, existingSettings: String?, sortBy: String, descending: Bool
+    ) async throws {
+        let merged = Self.mergedListSort(
+            into: existingSettings, sortBy: sortBy, descending: descending)
+        let json = try FrappeValue.object(merged).encodedJSONString()
+        try await client.call(
+            .saveUserSettings, parameters: ["doctype": doctype, "user_settings": json])
+    }
+
+    static func mergedListSort(
+        into existing: String?, sortBy: String, descending: Bool
+    ) -> [String: FrappeValue] {
+        var settings =
+            existing.flatMap { try? FrappeValue.decode(from: Data($0.utf8)).objectValue }
+            ?? [:]
+        var list = settings["List"]?.objectValue ?? [:]
+        list["sort_by"] = .string(sortBy)
+        list["sort_order"] = .string(descending ? "desc" : "asc")
+        settings["List"] = .object(list)
+        return settings
+    }
+
+    /// Persist list columns to the DocType's List View Settings — the same
+    /// document Desk's list "gear" writes, and the one Tula already reads.
+    public func saveListColumns(
+        doctype: String, fieldnames: [String], labels: [String: String],
+        removed: [String] = []
+    ) async throws {
+        let fields = FrappeValue.array(
+            fieldnames.map { fieldname in
+                .object([
+                    "fieldname": .string(fieldname),
+                    "label": .string(labels[fieldname] ?? fieldname),
+                ])
+            })
+        let settings = FrappeValue.object(["fields": .string(try fields.encodedJSONString())])
+        try await client.call(
+            .saveListViewSettings,
+            parameters: [
+                "doctype": doctype,
+                "listview_settings": try settings.encodedJSONString(),
+                "removed_listview_fields": Self.jsonList(removed),
+            ])
+    }
+
+    // MARK: Bulk (Desk's own batched endpoints — one call per operation)
+
+    public func bulkDelete(doctype: String, names: [String]) async throws {
+        try await client.call(
+            .bulkDelete, parameters: ["doctype": doctype, "items": Self.jsonList(names)])
+    }
+
+    public func bulkSubmitCancel(
+        doctype: String, names: [String], action: BulkDocstatusAction
+    ) async throws {
+        try await client.call(
+            .bulkSubmitCancel,
+            parameters: [
+                "doctype": doctype, "docnames": Self.jsonList(names),
+                "action": action.rawValue,
+            ])
+    }
+
+    public func bulkAssign(doctype: String, names: [String], to users: [String]) async throws {
+        try await client.call(
+            .bulkAssign,
+            parameters: [
+                "doctype": doctype, "name": Self.jsonList(names),
+                "assign_to": Self.jsonList(users),
+            ])
+    }
+
+    public func bulkAddTag(_ tag: String, doctype: String, names: [String]) async throws {
+        try await client.call(
+            .bulkTag,
+            parameters: [
+                "tags": Self.jsonList([tag]), "dt": doctype, "docs": Self.jsonList(names),
+            ])
+    }
+
+    static func jsonList(_ values: [String]) -> String {
+        (try? FrappeValue.array(values.map { .string($0) }).encodedJSONString()) ?? "[]"
     }
 }

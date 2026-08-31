@@ -156,9 +156,9 @@ the full collaboration surface (comments, assignments, tags, shares, likes, foll
 attachments, reminders) and W2 the document lifecycle (submit, cancel, delete, rename via
 `update_document_title`, duplicate via `frappe.client.insert`, and metadata-driven workflow
 transitions via `apply_workflow`) — every lifecycle action behind an explicit confirmation.
-W3 added field editing as an explicit edit session, and W4 document creation — Quick Entry
-and full-form creation sheets, plus amend — completing the write surface for documents.
-Bulk operations and settings writes (W5) remain out of scope.
+W3 added field editing as an explicit edit session, W4 document creation (Quick Entry,
+full-form sheets, amend), and W5 settings & bulk — completing the write map. Every write
+remains an enumerated operation behind the session lock.
 
 **For any further writes**: keep this structure — do not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
 enumerated mutation whitelist (save/submit/cancel/amend), a distinct capability protocol
@@ -460,10 +460,22 @@ DocTypes get an ID field feeding `__newname`; creation posts through the existin
 there too), and Amend appears on cancelled documents, seeding the sheet with the
 stripped draft copy carrying `amended_from` — nothing touches the server until Create.
 
-**W5 — Settings & bulk (M).** Persist list columns/sort back to List View Settings and
-user settings; save filter presets (List Filter insert); bulk list operations
+**W5 — Settings & bulk (M). *Shipped.*** Persist list columns/sort back to List View
+Settings and user settings; save filter presets (List Filter insert); bulk list operations
 (assign/tag/submit/delete over selections). Email stays a `mailto:` hand-off with a Desk
 link — no server write needed — unless full Communication authoring is ever wanted (L).
+
+*As built:* an in-app sort change persists silently to the user's Desk `user_settings`
+(merged over the existing blob so GridView survives — covered by a kit test); lists grow a
+columns menu whose choice is local until "Save Columns to Server" writes Desk's own
+`save_listview_settings`; the filter editor saves/deletes presets as List Filter documents
+(visible in Desk too); bulk operations ride Desk's batched endpoints (`delete_items`,
+`bulk_update.submit_cancel_action`, `assign_to.add_multiple`, `tag.add_tags`) over a
+multi-select — native Table selection on macOS, a hand-drawn Select mode on iOS — with
+submit/cancel/delete behind count-explicit confirmations; and the Email action is the
+designed `mailto:` hand-off carrying the Desk link. Deferred: bulk assign to arbitrary
+users (Assign to Me ships), permission-aware affordance hiding (the server stays the
+enforcer; errors surface inline).
 
 **Cross-cutting requirements:** two-step confirmations for destructive/irreversible ops
 (submit, cancel, delete) under the single session lock; permission-aware affordances
@@ -474,8 +486,10 @@ refresh document on success.
 ### Engineering debt
 
 - Meta cache is session-long: manual refresh (⌘R) should also bust it.
-- Re-test the two beta-SDK layout landmines (report-grid `.refreshable`; Text beside menu
-  Pickers) when release SDKs ship; restore the iOS "Updated" stamp if fixed.
+- Re-test the three beta-SDK landmines when release SDKs ship (report-grid
+  `.refreshable`; Text beside menu Pickers; List rows morphing between NavigationLink and
+  plain content keep the link's touch handling — worked around by `.id`-rebuilding the
+  list on selection-mode changes); restore the iOS "Updated" stamp if fixed.
 - UI smoke tests driving the TULA_ROUTE / TULA_AUTOOPEN_FILTER hooks.
 
 ### Explicitly deferred

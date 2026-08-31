@@ -536,6 +536,27 @@ final class WriteClientTests: XCTestCase {
             ["party": "ACME", "party_type": "Supplier"])
     }
 
+    func testUserSettingsSortMerge() throws {
+        let existing = #"{"GridView": {"Sales Invoice Item": [{"fieldname": "item_code"}]}, "List": {"sort_by": "modified", "sort_order": "desc"}}"#
+        let merged = WriteSession.mergedListSort(
+            into: existing, sortBy: "posting_date", descending: false)
+        // The GridView blob survives the sort write untouched.
+        XCTAssertNotNil(merged["GridView"]?.objectValue?["Sales Invoice Item"])
+        XCTAssertEqual(
+            merged["List"]?.objectValue?["sort_by"]?.stringValue, "posting_date")
+        XCTAssertEqual(merged["List"]?.objectValue?["sort_order"]?.stringValue, "asc")
+        // No existing blob: a fresh settings object.
+        let fresh = WriteSession.mergedListSort(into: nil, sortBy: "name", descending: true)
+        XCTAssertEqual(fresh["List"]?.objectValue?["sort_order"]?.stringValue, "desc")
+    }
+
+    func testBulkParameterShaping() throws {
+        XCTAssertEqual(
+            WriteSession.jsonList(["ACC-SINV-2025-00042", "ACC-SINV-2025-00041"]),
+            #"["ACC-SINV-2025-00042","ACC-SINV-2025-00041"]"#)
+        XCTAssertEqual(WriteSession.jsonList([]), "[]")
+    }
+
     func testAmendSeed() throws {
         let doc = try Document.list(from: Data(DemoFixtures.salesInvoiceDocs.utf8))[0]
         let seed = WriteSession.draftCopy(

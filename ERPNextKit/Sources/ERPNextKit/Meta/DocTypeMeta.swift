@@ -186,15 +186,20 @@ public struct MetaBundle: Sendable {
     /// The user's saved list sort from Desk (user settings "List" section).
     public var listSortBy: String?
     public var listSortDescending: Bool?
+    /// The raw user_settings JSON blob, kept so settings writes can merge
+    /// instead of clobbering the parts Tula doesn't model.
+    public var userSettingsRaw: String?
 
     public init(
         metas: [DocTypeMeta], gridColumns: [String: [GridColumn]] = [:],
-        listSortBy: String? = nil, listSortDescending: Bool? = nil
+        listSortBy: String? = nil, listSortDescending: Bool? = nil,
+        userSettingsRaw: String? = nil
     ) {
         self.metas = metas
         self.gridColumns = gridColumns
         self.listSortBy = listSortBy
         self.listSortDescending = listSortDescending
+        self.userSettingsRaw = userSettingsRaw
     }
 }
 
@@ -251,7 +256,8 @@ public enum MetaDecoder {
 
         return MetaBundle(
             metas: metas, gridColumns: gridColumns,
-            listSortBy: listSortBy, listSortDescending: listSortDescending)
+            listSortBy: listSortBy, listSortDescending: listSortDescending,
+            userSettingsRaw: settingsRaw)
     }
 }
 
