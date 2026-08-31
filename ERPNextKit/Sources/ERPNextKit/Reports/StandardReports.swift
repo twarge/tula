@@ -36,19 +36,85 @@ public enum Periodicity: String, Sendable, Hashable, CaseIterable, Identifiable 
     public var id: String { rawValue }
 }
 
-/// Shared filter state for the standard financial statements.
+/// Shared filter state for the standard financial statements — Desk's full
+/// conventional filter set for `erpnext.financial_statements` (these are
+/// script-report filters defined in bundled JS, not servable metadata, so
+/// they live here natively; ARCHITECTURE.md §7).
 public struct FinancialFilterState: Sendable, Hashable {
     public var company: Company?
+    /// The From fiscal year (and the whole span when `toFiscalYear` is nil).
     public var fiscalYear: FiscalYear?
     public var periodicity: Periodicity
 
+    // Advanced set (Desk parity). Defaults reproduce the pre-existing
+    // behavior, so untouched screens render identically.
+    /// Desk's "filter based on": false = Fiscal Year, true = Date Range.
+    public var basedOnDateRange: Bool
+    /// Wire dates, used only with `basedOnDateRange`.
+    public var periodStartDate: String?
+    public var periodEndDate: String?
+    /// nil = same as `fiscalYear` (a single-year span).
+    public var toFiscalYear: FiscalYear?
+    public var financeBook: String?
+    public var presentationCurrency: String?
+    public var costCenter: String?
+    public var project: String?
+    /// nil = the statement's own Desk default.
+    public var accumulatedValues: Bool?
+    public var includeDefaultBookEntries: Bool
+
     public init(
         company: Company? = nil, fiscalYear: FiscalYear? = nil,
-        periodicity: Periodicity = .quarterly
+        periodicity: Periodicity = .quarterly,
+        basedOnDateRange: Bool = false,
+        periodStartDate: String? = nil, periodEndDate: String? = nil,
+        toFiscalYear: FiscalYear? = nil,
+        financeBook: String? = nil, presentationCurrency: String? = nil,
+        costCenter: String? = nil, project: String? = nil,
+        accumulatedValues: Bool? = nil, includeDefaultBookEntries: Bool = true
     ) {
         self.company = company
         self.fiscalYear = fiscalYear
         self.periodicity = periodicity
+        self.basedOnDateRange = basedOnDateRange
+        self.periodStartDate = periodStartDate
+        self.periodEndDate = periodEndDate
+        self.toFiscalYear = toFiscalYear
+        self.financeBook = financeBook
+        self.presentationCurrency = presentationCurrency
+        self.costCenter = costCenter
+        self.project = project
+        self.accumulatedValues = accumulatedValues
+        self.includeDefaultBookEntries = includeDefaultBookEntries
+    }
+
+    /// True when any advanced filter differs from its default.
+    public var hasAdvancedFilters: Bool {
+        basedOnDateRange || toFiscalYear != nil || financeBook != nil
+            || presentationCurrency != nil || costCenter != nil || project != nil
+            || accumulatedValues != nil || !includeDefaultBookEntries
+    }
+
+    /// Stable identity for screen caches (every field participates).
+    public var cacheToken: String {
+        [
+            company?.name ?? "-", fiscalYear?.name ?? "-", periodicity.rawValue,
+            basedOnDateRange ? "range" : "fy",
+            periodStartDate ?? "-", periodEndDate ?? "-",
+            toFiscalYear?.name ?? "-", financeBook ?? "-",
+            presentationCurrency ?? "-", costCenter ?? "-", project ?? "-",
+            accumulatedValues.map { $0 ? "1" : "0" } ?? "-",
+            includeDefaultBookEntries ? "1" : "0",
+        ].joined(separator: "|")
+    }
+
+    /// The effective reporting span as wire dates (for drill-downs).
+    public var effectiveDateSpan: (start: String, end: String)? {
+        if basedOnDateRange, let periodStartDate, let periodEndDate {
+            return (periodStartDate, periodEndDate)
+        }
+        guard let fiscalYear else { return nil }
+        return (fiscalYear.startDate, (toFiscalYear ?? fiscalYear).endDate)
     }
 }
 
@@ -79,6 +145,12 @@ public struct ReportDescriptor: Sendable, Hashable, Identifiable {
         return false
     }
 
+    /// The statement's Desk default for Accumulated Values.
+    public var accumulatedByDefault: Bool {
+        if case .financialStatement(let accumulated) = filterStyle { return accumulated }
+        return false
+    }
+
     public func filters(for state: FinancialFilterState) -> [String: FrappeValue] {
         var filters: [String: FrappeValue] = [:]
         if let company = state.company {
@@ -87,17 +159,41 @@ public struct ReportDescriptor: Sendable, Hashable, Identifiable {
         let fiscalYear = state.fiscalYear
 
         switch filterStyle {
-        case .financialStatement(let accumulated):
-            filters["filter_based_on"] = .string("Fiscal Year")
-            if let fiscalYear {
-                filters["from_fiscal_year"] = .string(fiscalYear.name)
-                filters["to_fiscal_year"] = .string(fiscalYear.name)
-                filters["period_start_date"] = .string(fiscalYear.startDate)
-                filters["period_end_date"] = .string(fiscalYear.endDate)
+        case .financialStatement(let accumulatedByDefault):
+            if state.basedOnDateRange, let start = state.periodStartDate,
+                let end = state.periodEndDate {
+                filters["filter_based_on"] = .string("Date Range")
+                filters["period_start_date"] = .string(start)
+                filters["period_end_date"] = .string(end)
+            } else {
+                filters["filter_based_on"] = .string("Fiscal Year")
+                if let fiscalYear {
+                    let toYear = state.toFiscalYear ?? fiscalYear
+                    filters["from_fiscal_year"] = .string(fiscalYear.name)
+                    filters["to_fiscal_year"] = .string(toYear.name)
+                    filters["period_start_date"] = .string(fiscalYear.startDate)
+                    filters["period_end_date"] = .string(toYear.endDate)
+                }
             }
             filters["periodicity"] = .string(state.periodicity.rawValue)
-            filters["accumulated_values"] = .int(accumulated ? 1 : 0)
-            filters["include_default_book_entries"] = .int(1)
+            filters["accumulated_values"] = .int(
+                (state.accumulatedValues ?? accumulatedByDefault) ? 1 : 0)
+            filters["include_default_book_entries"] = .int(
+                state.includeDefaultBookEntries ? 1 : 0)
+            if let financeBook = state.financeBook {
+                filters["finance_book"] = .string(financeBook)
+            }
+            if let currency = state.presentationCurrency {
+                filters["presentation_currency"] = .string(currency)
+            }
+            // Desk sends these as MultiSelectList values; a one-element list
+            // matches the server's get_*_with_children expectations.
+            if let costCenter = state.costCenter {
+                filters["cost_center"] = .array([.string(costCenter)])
+            }
+            if let project = state.project {
+                filters["project"] = .array([.string(project)])
+            }
 
         case .fiscalYearRange:
             if let fiscalYear {

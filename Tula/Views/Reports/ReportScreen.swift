@@ -70,10 +70,8 @@ struct ReportScreen: View {
     }
 
     private var cacheKey: String {
-        let filters = model.filterState
-        return "report|\(model.sourceGeneration)|\(descriptor.name)|"
-            + "\(filters.company?.name ?? "-")|\(filters.fiscalYear?.name ?? "-")|"
-            + "\(filters.periodicity.rawValue)|\(extraKey)"
+        "report|\(model.sourceGeneration)|\(descriptor.name)|"
+            + "\(model.filterState.cacheToken)|\(extraKey)"
     }
 
     @ViewBuilder
@@ -112,9 +110,9 @@ struct ReportScreen: View {
         if let company = model.filterState.company {
             extra["company"] = .string(company.name)
         }
-        if let fiscalYear = model.filterState.fiscalYear {
-            extra["from_date"] = .string(fiscalYear.startDate)
-            extra["to_date"] = .string(fiscalYear.endDate)
+        if let span = model.filterState.effectiveDateSpan {
+            extra["from_date"] = .string(span.start)
+            extra["to_date"] = .string(span.end)
         }
         return .queryReport(name: StandardReports.generalLedger.name, extra: extra)
     }
@@ -143,8 +141,14 @@ struct ReportScreen: View {
             pdfURL = ReportPDF.render(
                 title: descriptor.title,
                 subtitle: [
-                    model.filterState.company?.name, model.filterState.fiscalYear?.name,
-                ].compactMap { $0 }.joined(separator: " · "),
+                    model.filterState.company?.name,
+                    model.filterState.basedOnDateRange
+                        ? model.filterState.effectiveDateSpan.map { "\($0.start) – \($0.end)" }
+                        : [
+                            model.filterState.fiscalYear?.name,
+                            model.filterState.toFiscalYear?.name,
+                        ].compactMap { $0 }.joined(separator: " – "),
+                ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                 result: result, fallbackCurrency: model.fallbackCurrencyCode)
         } catch {
             // Keep the cached/snapshot content on refresh failure (offline);
@@ -164,6 +168,7 @@ struct ReportScreen: View {
 struct FilterBar: View {
     let descriptor: ReportDescriptor
     @Environment(AppModel.self) private var model
+    @State private var showingAdvanced = false
 
     var body: some View {
         @Bindable var model = model
@@ -192,12 +197,179 @@ struct FilterBar: View {
                 }
                 .fixedSize()
             }
+            if descriptor.usesPeriodicity {
+                Button {
+                    showingAdvanced = true
+                } label: {
+                    Label(
+                        "More Filters",
+                        systemImage: model.filterState.hasAdvancedFilters
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("Finance book, currency, cost center, and more")
+                .popover(isPresented: $showingAdvanced, arrowEdge: .top) {
+                    AdvancedReportFilters(descriptor: descriptor)
+                        #if !os(macOS)
+                            .presentationDetents([.medium, .large])
+                        #endif
+                }
+            }
             Spacer()
         }
         .pickerStyle(.menu)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+}
+
+/// The rest of Desk's financial-statement filter set (finance book,
+/// presentation currency, cost center, project, fiscal-year span or date
+/// range, and the two checkboxes), in a popover off the filter bar. Values
+/// apply immediately — the report task re-runs on every state change, the
+/// same way the inline pickers behave.
+struct AdvancedReportFilters: View {
+    let descriptor: ReportDescriptor
+
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Picker("Period", selection: $model.filterState.basedOnDateRange) {
+                    Text("Fiscal Year").tag(false)
+                    Text("Date Range").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if model.filterState.basedOnDateRange {
+                    labeled("From Date") {
+                        wireDatePicker($model.filterState.periodStartDate)
+                    }
+                    labeled("To Date") {
+                        wireDatePicker($model.filterState.periodEndDate)
+                    }
+                } else {
+                    labeled("To Fiscal Year") {
+                        Picker(
+                            "To Fiscal Year",
+                            selection: Binding(
+                                get: {
+                                    model.filterState.toFiscalYear
+                                        ?? model.filterState.fiscalYear
+                                },
+                                set: { year in
+                                    model.filterState.toFiscalYear =
+                                        year == model.filterState.fiscalYear ? nil : year
+                                })
+                        ) {
+                            ForEach(model.fiscalYears) { year in
+                                Text(year.name).tag(Optional(year))
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
+
+                Divider()
+
+                labeled("Finance Book") {
+                    LinkSuggestField(
+                        doctype: "Finance Book",
+                        text: optionalBinding($model.filterState.financeBook))
+                }
+                labeled("Currency") {
+                    LinkSuggestField(
+                        doctype: "Currency",
+                        text: optionalBinding($model.filterState.presentationCurrency))
+                }
+                labeled("Cost Center") {
+                    LinkSuggestField(
+                        doctype: "Cost Center",
+                        text: optionalBinding($model.filterState.costCenter))
+                }
+                labeled("Project") {
+                    LinkSuggestField(
+                        doctype: "Project",
+                        text: optionalBinding($model.filterState.project))
+                }
+
+                Divider()
+
+                Toggle(
+                    "Accumulated Values",
+                    isOn: Binding(
+                        get: {
+                            model.filterState.accumulatedValues
+                                ?? descriptor.accumulatedByDefault
+                        },
+                        set: { on in
+                            model.filterState.accumulatedValues =
+                                on == descriptor.accumulatedByDefault ? nil : on
+                        }))
+                Toggle(
+                    "Include Default FB Entries",
+                    isOn: $model.filterState.includeDefaultBookEntries)
+
+                HStack {
+                    Spacer()
+                    Button("Reset") {
+                        model.filterState.basedOnDateRange = false
+                        model.filterState.periodStartDate = nil
+                        model.filterState.periodEndDate = nil
+                        model.filterState.toFiscalYear = nil
+                        model.filterState.financeBook = nil
+                        model.filterState.presentationCurrency = nil
+                        model.filterState.costCenter = nil
+                        model.filterState.project = nil
+                        model.filterState.accumulatedValues = nil
+                        model.filterState.includeDefaultBookEntries = true
+                    }
+                    .disabled(!model.filterState.hasAdvancedFilters)
+                }
+            }
+            .padding(16)
+        }
+        // Popovers size to intrinsic content; give the form real room on
+        // every platform (the iPhone sheet adaptation is unaffected).
+        .frame(minWidth: 360, minHeight: 500)
+    }
+
+    private func labeled(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    /// Empty string ↔ nil bridge for the link fields.
+    private func optionalBinding(_ source: Binding<String?>) -> Binding<String> {
+        Binding(
+            get: { source.wrappedValue ?? "" },
+            set: { source.wrappedValue = $0.isEmpty ? nil : $0 })
+    }
+
+    private func wireDatePicker(_ source: Binding<String?>) -> some View {
+        DatePicker(
+            "",
+            selection: Binding(
+                get: {
+                    ValueFormatting.wireDateValue(source.wrappedValue) ?? Date()
+                },
+                set: { source.wrappedValue = ValueFormatting.wireDateString($0) }),
+            displayedComponents: [.date]
+        )
+        .labelsHidden()
+        .environment(\.timeZone, TimeZone(identifier: "UTC") ?? .current)
+        .fixedSize()
     }
 }
 

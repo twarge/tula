@@ -383,6 +383,15 @@ prepared-report polling and multiple server profiles.
     + Swift Charts; workspace cards slot in from Phase 4. (L)
 11. **PDF export** — `ImageRenderer` of the report grid → share/print; native re-render,
     not Desk print formats. (M)
+11b. **Statement filter parity** *(shipped Aug 2026)* — the standard statements' Desk
+    filter bar is fully native: the script-report filters live in erpnext's bundled JS
+    (not servable metadata), so `FinancialFilterState` models the whole conventional set —
+    fiscal-year span or date range, finance book, presentation currency, cost center,
+    project (sent as one-element MultiSelectList values), accumulated values, include
+    default FB entries — with the advanced set in a popover off the filter bar and every
+    field participating in cache identity. Desk's "Report View" (Growth/Margin, a
+    client-side transform) stays deferred.
+
 12. **Formatting fidelity** — honor field `precision`, System Settings number/date formats,
     accounting-style negatives. (S)
 13. **Filter completeness** — `between`/`timespan` operators, `or_filters`, read-only
