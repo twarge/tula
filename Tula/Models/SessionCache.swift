@@ -41,6 +41,7 @@ final class SessionCache {
     private var doctypeNamesCache: [String]?
     private var reportsCatalogCache: [ReportInfo]?
     private var workflowsCache: [String: WorkflowInfo?] = [:]
+    private var printFormatsCache: [String: [String]] = [:]
 
     /// All non-child, non-single DocType names — Desk's navigation universe.
     /// Falls back to empty (callers merge in known doctypes) when the API
@@ -58,6 +59,13 @@ final class SessionCache {
         let names = docs.map(\.name)
         doctypeNamesCache = names
         return names
+    }
+
+    func printFormats(for doctype: String, using source: any DataSource) async -> [String] {
+        if let cached = printFormatsCache[doctype] { return cached }
+        let formats = (try? await source.printFormats(doctype: doctype)) ?? ["Standard"]
+        printFormatsCache[doctype] = formats
+        return formats
     }
 
     func workflow(for doctype: String, using source: any DataSource) async -> WorkflowInfo? {
@@ -92,6 +100,7 @@ final class SessionCache {
         doctypeNamesCache = nil
         reportsCatalogCache = nil
         workflowsCache = [:]
+        printFormatsCache = [:]
     }
 
     func removeAll() {
@@ -100,6 +109,7 @@ final class SessionCache {
         doctypeNamesCache = nil
         reportsCatalogCache = nil
         workflowsCache = [:]
+        printFormatsCache = [:]
         screens = [:]
     }
 

@@ -60,6 +60,9 @@ public enum ReadMethod: String, Sendable, CaseIterable {
     /// Desk's document load; read-only in intent (the server may record a
     /// "seen by" bookkeeping entry, exactly as opening the form in Desk does).
     case getDoc = "frappe.desk.form.load.getdoc"
+    /// Server-rendered document PDF (Desk's print). Pure read: the server
+    /// renders the print format and returns bytes.
+    case downloadPDF = "frappe.utils.print_format.download_pdf"
     case loggedUser = "frappe.auth.get_logged_user"
     case isFollowed = "frappe.desk.form.document_follow.is_document_followed"
     case dashboardChartGet = "frappe.desk.doctype.dashboard_chart.dashboard_chart.get"

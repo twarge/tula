@@ -86,6 +86,7 @@ struct DocumentScreen: View {
         .toolbar {
             SearchToolbar()
             WriteGateToolbar()
+            PrintToolbar(doctype: doctype, name: name)
             OpenInDeskToolbar(route: .document(doctype: doctype, name: name))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }

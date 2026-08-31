@@ -383,6 +383,15 @@ prepared-report polling and multiple server profiles.
     + Swift Charts; workspace cards slot in from Phase 4. (L)
 11. **PDF export** — `ImageRenderer` of the report grid → share/print; native re-render,
     not Desk print formats. (M)
+
+    *Document print formats (shipped Aug 2026):* documents additionally get real Desk
+    print formats — a printer menu on the form toolbar lists "Standard" plus the DocType's
+    enabled Print Format documents (server default first, session-cached), and selecting
+    one downloads the server-rendered PDF via `frappe.utils.print_format.download_pdf`
+    (a pure authenticated GET — the print engine runs server-side, so no WebKit and no
+    write) and opens it in Preview (macOS) / Quick Look (iOS). A non-PDF response (a
+    format the server can't render, a missing wkhtmltopdf) surfaces as the server's own
+    message. Letterhead selection is not exposed yet — the server default applies.
 11b. **Statement filter parity** *(shipped Aug 2026)* — the standard statements' Desk
     filter bar is fully native: the script-report filters live in erpnext's bundled JS
     (not servable metadata), so `FinancialFilterState` models the whole conventional set —

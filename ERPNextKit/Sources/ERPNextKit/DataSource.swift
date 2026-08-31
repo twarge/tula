@@ -186,6 +186,11 @@ public protocol DataSource: Sendable {
     /// The `__onload` payload Desk receives with a document (party
     /// dashboard stats, etc.); nil when the source has none.
     func documentOnload(doctype: String, name: String) async throws -> [String: FrappeValue]?
+    /// Print formats available for a DocType ("Standard" plus the server's
+    /// enabled Print Format documents), default first.
+    func printFormats(doctype: String) async throws -> [String]
+    /// The document rendered to PDF by the server's print engine.
+    func renderPDF(doctype: String, name: String, format: String) async throws -> Data
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -254,6 +259,15 @@ extension DataSource {
     public func documentOnload(doctype: String, name: String) async throws
         -> [String: FrappeValue]? {
         nil
+    }
+
+    public func printFormats(doctype: String) async throws -> [String] {
+        ["Standard"]
+    }
+
+    public func renderPDF(doctype: String, name: String, format: String) async throws -> Data {
+        throw ERPNextError(
+            message: "PDF rendering needs a live ERPNext server (the print engine runs server-side).")
     }
 
     public func reportScript(name: String) async throws -> String? {
@@ -452,6 +466,42 @@ public struct LiveDataSource: DataSource {
             }
         }
         return counts.isEmpty ? nil : counts
+    }
+
+    public func printFormats(doctype: String) async throws -> [String] {
+        let docs =
+            (try? await list(
+                "Print Format", fields: ["name", "disabled"],
+                filters: [ListFilter("doc_type", "=", .string(doctype))],
+                orderBy: "name asc", limitStart: 0, limitPageLength: 50)) ?? []
+        var formats = ["Standard"]
+        for doc in docs where doc["disabled"]?.boolValue != true {
+            if !formats.contains(doc.name) { formats.append(doc.name) }
+        }
+        // The DocType's configured default leads the menu.
+        if let bundle = try? await metaBundle(for: doctype),
+            let preferred = bundle.metas.first?.raw["default_print_format"]?.nonEmptyString,
+            let index = formats.firstIndex(of: preferred), index != 0 {
+            formats.remove(at: index)
+            formats.insert(preferred, at: 0)
+        }
+        return formats
+    }
+
+    public func renderPDF(doctype: String, name: String, format: String) async throws -> Data {
+        let data = try await client.data(
+            for: .method(
+                .downloadPDF,
+                parameters: [
+                    "doctype": doctype, "name": name, "format": format,
+                    "no_letterhead": "0",
+                ]))
+        // A failed render comes back as JSON/HTML, not %PDF bytes.
+        guard data.starts(with: Array("%PDF".utf8)) else {
+            throw ERPNextError(
+                message: ReadOnlyClient.serverMessage(from: data, statusCode: 200))
+        }
+        return data
     }
 
     public func documentOnload(doctype: String, name: String) async throws
