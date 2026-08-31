@@ -36,6 +36,36 @@ final class SessionCache {
         return columns
     }
 
+    // MARK: Search catalogs (session-long, for awesomebar suggestions)
+
+    private var doctypeNamesCache: [String]?
+    private var reportsCatalogCache: [ReportInfo]?
+
+    /// All non-child, non-single DocType names — Desk's navigation universe.
+    /// Falls back to empty (callers merge in known doctypes) when the API
+    /// user can't read the DocType doctype.
+    func doctypeNames(using source: any DataSource) async -> [String] {
+        if let doctypeNamesCache { return doctypeNamesCache }
+        let docs =
+            (try? await source.list(
+                "DocType", fields: ["name"],
+                filters: [
+                    ListFilter("istable", "=", .int(0)),
+                    ListFilter("issingle", "=", .int(0)),
+                ],
+                orderBy: "name asc", limitStart: 0, limitPageLength: 1000)) ?? []
+        let names = docs.map(\.name)
+        doctypeNamesCache = names
+        return names
+    }
+
+    func reportsCatalog(using source: any DataSource) async -> [ReportInfo] {
+        if let reportsCatalogCache { return reportsCatalogCache }
+        let reports = (try? await source.reports()) ?? []
+        reportsCatalogCache = reports
+        return reports
+    }
+
     // MARK: Screens (tier 2 — memory, stale-while-revalidate)
 
     func screen<T>(_ key: String) -> (value: T, savedAt: Date)? {
@@ -51,11 +81,15 @@ final class SessionCache {
     func invalidateMeta() {
         metaBundles = [:]
         listColumns = [:]
+        doctypeNamesCache = nil
+        reportsCatalogCache = nil
     }
 
     func removeAll() {
         metaBundles = [:]
         listColumns = [:]
+        doctypeNamesCache = nil
+        reportsCatalogCache = nil
         screens = [:]
     }
 

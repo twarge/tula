@@ -92,6 +92,7 @@ struct ListScreen: View {
         .navigationTitle(doctype)
         .searchable(text: $searchText, prompt: Text("Search \(doctype)"))
         .toolbar {
+            SearchToolbar()
             filterToolbar
             sortToolbar
             OpenInDeskToolbar(route: .doctypeList(doctype))

@@ -28,6 +28,7 @@ struct GenericReportScreen: View {
         }
         .navigationTitle(reportName)
         .toolbar {
+            SearchToolbar()
             PDFExportToolbar(url: pdfURL)
             OpenInDeskToolbar(route: .queryReport(name: reportName, extra: [:]))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }

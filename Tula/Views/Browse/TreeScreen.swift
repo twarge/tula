@@ -55,6 +55,7 @@ struct TreeScreen: View {
         }
         .navigationTitle(doctype)
         .toolbar {
+            SearchToolbar()
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink(value: Route.doctypeList(doctype)) {
                     Label("View as List", systemImage: "list.bullet")

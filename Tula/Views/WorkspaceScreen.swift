@@ -100,6 +100,7 @@ struct WorkspaceScreen: View {
         }
         .navigationTitle(workspaceName)
         .toolbar {
+            SearchToolbar()
             OpenInDeskToolbar(route: .workspace(workspaceName))
         }
         .task(id: "\(model.sourceGeneration)-\(workspaceName)") {

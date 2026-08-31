@@ -38,6 +38,7 @@ struct ReportScreen: View {
         }
         .navigationTitle(descriptor.title)
         .toolbar {
+            SearchToolbar()
             PDFExportToolbar(url: pdfURL)
             OpenInDeskToolbar(route: .report(descriptor))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }

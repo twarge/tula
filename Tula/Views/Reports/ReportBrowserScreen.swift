@@ -34,6 +34,7 @@ struct ReportBrowserScreen: View {
         .navigationTitle("Reports")
         .searchable(text: $searchText, prompt: Text("Search reports"))
         .toolbar {
+            SearchToolbar()
             OpenInDeskToolbar(route: .reportBrowser)
             RefreshToolbar(lastUpdated: nil) { refreshToken += 1 }
         }
