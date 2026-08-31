@@ -199,9 +199,10 @@ private struct WireDateEditor: View {
     }
 }
 
-/// Link-field type-ahead reusing the same `search_link` endpoint as Desk;
-/// suggestions render inline below the field (popovers fight text-field
-/// focus cross-platform).
+/// Link-field type-ahead: instant local filtering when the target has a
+/// link catalog (ARCHITECTURE.md §11), Desk's `search_link` endpoint
+/// otherwise; suggestions render inline below the field (popovers fight
+/// text-field focus cross-platform).
 struct LinkSuggestField: View {
     let doctype: String
     let text: Binding<String>
@@ -251,11 +252,19 @@ struct LinkSuggestField: View {
                 showSuggestions = false
                 return
             }
-            try? await Task.sleep(for: .milliseconds(250))
-            if Task.isCancelled { return }
-            let options =
-                (try? await model.dataSource.searchLink(
-                    doctype: doctype, query: text.wrappedValue)) ?? []
+            // Catalog hit: filter locally with no debounce and no request
+            // (the catalog revalidates itself in the background).
+            let options: [LinkOption]
+            if let local = model.cache.linkSuggestions(
+                doctype: doctype, query: text.wrappedValue, using: model.dataSource) {
+                options = local
+            } else {
+                try? await Task.sleep(for: .milliseconds(250))
+                if Task.isCancelled { return }
+                options =
+                    (try? await model.dataSource.searchLink(
+                        doctype: doctype, query: text.wrappedValue)) ?? []
+            }
             // Typing the exact match needs no suggestion list.
             suggestions = options.filter { $0.value != text.wrappedValue }
             showSuggestions = !suggestions.isEmpty

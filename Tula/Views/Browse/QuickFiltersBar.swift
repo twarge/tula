@@ -252,6 +252,14 @@ struct LinkFilterChip: View {
             .frame(width: 300, height: 360)
         #endif
         .task(id: query) {
+            // Catalog hit: instant local filtering, no debounce or request.
+            if let local = model.cache.linkSuggestions(
+                doctype: target, query: query, using: model.dataSource) {
+                results = local
+                searchError = nil
+                hasSearched = true
+                return
+            }
             if !query.isEmpty {
                 try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled { return }

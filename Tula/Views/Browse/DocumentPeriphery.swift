@@ -709,6 +709,12 @@ private struct SharesChip: View {
                     results = []
                     return
                 }
+                // Catalog hit: instant local filtering, no debounce or request.
+                if let local = model.cache.linkSuggestions(
+                    doctype: "User", query: query, using: model.dataSource) {
+                    results = local
+                    return
+                }
                 try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled { return }
                 results =
@@ -820,6 +826,12 @@ private struct AssignChip: View {
             .task(id: query) {
                 guard !query.isEmpty else {
                     results = []
+                    return
+                }
+                // Catalog hit: instant local filtering, no debounce or request.
+                if let local = model.cache.linkSuggestions(
+                    doctype: "User", query: query, using: model.dataSource) {
+                    results = local
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(250))

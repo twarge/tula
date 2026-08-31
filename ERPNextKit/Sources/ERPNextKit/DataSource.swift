@@ -124,7 +124,8 @@ public struct WorkflowInfo: Sendable, Hashable {
 }
 
 /// One result of a link-field autocomplete (`frappe.desk.search.search_link`).
-public struct LinkOption: Sendable, Hashable, Identifiable {
+/// Codable so link catalogs can persist to disk (ARCHITECTURE.md §11).
+public struct LinkOption: Sendable, Hashable, Identifiable, Codable {
     public var value: String
     public var description: String?
 

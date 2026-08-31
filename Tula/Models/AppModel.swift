@@ -121,6 +121,14 @@ final class AppModel {
         apiSecret = Keychain.string(for: "apiSecret") ?? ""
         dataSource = DemoDataSource()
         dataSource = makeDataSource()
+        cache.diskIdentity = diskIdentity
+    }
+
+    /// Keys on-disk caches (link catalogs) to the server+user they came
+    /// from, so switching sites can never surface another site's names.
+    private var diskIdentity: String {
+        guard !useDemo, let configuration = liveConfiguration() else { return "demo" }
+        return "\(configuration.baseURL.absoluteString)|\(configuration.apiKey)"
     }
 
     var isDemo: Bool { dataSource is DemoDataSource }
@@ -150,6 +158,7 @@ final class AppModel {
         writeSession = nil
         writeGateError = nil
         cache.removeAll()
+        cache.diskIdentity = diskIdentity
         companies = []
         fiscalYears = []
         workspaces = []

@@ -312,8 +312,14 @@ invalidation signal; everything keyed by server+user and wiped on `sourceGenerat
 3. **Report snapshots — disk.** Last result per (report, filters) with timestamp → instant
    open with the "Updated HH:MM" stamp, silent re-run; GL Entry probe signals staleness.
    This is the offline-viewing tier.
-4. **Never cached:** autocomplete, counts, anything cross-identity. Credentials stay in the
-   Keychain only.
+4. **Link catalogs — memory + disk.** Link targets with ≤5,000 rows keep their complete
+   option set locally (name + title, recency-ordered) so type-ahead filters with zero
+   network latency; larger targets stay on live `search_link`. Revalidated once per
+   session (reset by ⌘R) against a (count, max modified) fingerprint — the same probe
+   pair auto-refresh uses; disk keys carry the server+user identity so catalogs never
+   leak across sites.
+5. **Never cached:** live autocomplete for large doctypes, counts, anything
+   cross-identity. Credentials stay in the Keychain only.
 
 ## 12. Roadmap
 
