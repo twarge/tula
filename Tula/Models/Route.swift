@@ -23,6 +23,28 @@ enum Route: Hashable {
     case linkedList(doctype: String, filters: [String: String])
     case document(doctype: String, name: String)
 
+    /// Human-readable name for menus (the Go menu's History list).
+    var displayTitle: String {
+        switch self {
+        case .report(let descriptor):
+            return descriptor.title
+        case .queryReport(let name, _):
+            return name
+        case .reportBrowser:
+            return "All Reports"
+        case .workspace(let name):
+            return name
+        case .doctypeList(let doctype):
+            return "\(doctype) · List"
+        case .tree(let doctype):
+            return "\(doctype) · Tree"
+        case .linkedList(let doctype, _):
+            return "\(doctype) · Filtered List"
+        case .document(let doctype, let name):
+            return "\(doctype) · \(name)"
+        }
+    }
+
     /// Deterministic identity for `.id()` — keeps per-screen @State scoped
     /// to one destination (dictionary description order is not stable).
     var stableID: String {

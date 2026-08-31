@@ -35,9 +35,16 @@ struct RootView: View {
         }
         return .report(StandardReports.profitAndLoss)
     }
-    @State private var path = NavigationPath()
+    /// Typed so the currently displayed route (`path.last ?? selection`)
+    /// is readable for history recording.
+    @State private var path: [Route] = []
     @State private var showingSettings = false
     @State private var showingOmnibar = false
+
+    /// What the detail column is actually showing.
+    private var currentRoute: Route? {
+        path.last ?? selection
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -58,7 +65,13 @@ struct RootView: View {
             }
         }
         .onChange(of: selection) {
-            path = NavigationPath()
+            path = []
+        }
+        .onChange(of: currentRoute) { _, route in
+            if let route { model.recordVisit(route) }
+        }
+        .onAppear {
+            if let route = currentRoute { model.recordVisit(route) }
         }
         .onChange(of: model.pendingRoute) { _, route in
             if let route {
@@ -83,11 +96,17 @@ struct RootView: View {
         }
         #if !os(macOS)
             .background(
-                // Global search shortcut for hardware keyboards; on macOS the
-                // Go menu owns ⌘K.
-                Button("") { showingOmnibar = true }
-                    .keyboardShortcut("k", modifiers: .command)
-                    .hidden()
+                // Hardware-keyboard shortcuts; on macOS the Go menu owns
+                // these.
+                Group {
+                    Button("") { showingOmnibar = true }
+                        .keyboardShortcut("k", modifiers: .command)
+                    Button("") { model.goBack() }
+                        .keyboardShortcut("[", modifiers: .command)
+                    Button("") { model.goForward() }
+                        .keyboardShortcut("]", modifiers: .command)
+                }
+                .hidden()
             )
         #endif
         .onAppear {

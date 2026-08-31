@@ -12,6 +12,35 @@ struct TulaApp: App {
         }
         .commands {
             CommandMenu("Go") {
+                Button("Back") {
+                    model.goBack()
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!model.canGoBack)
+                Button("Forward") {
+                    model.goForward()
+                }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!model.canGoForward)
+                Menu("History") {
+                    // Newest first; the current entry gets a checkmark.
+                    ForEach(
+                        Array(model.history.enumerated().reversed()).prefix(20),
+                        id: \.offset
+                    ) { index, route in
+                        Button {
+                            model.jumpToHistory(index)
+                        } label: {
+                            if index == model.historyIndex {
+                                Label(route.displayTitle, systemImage: "checkmark")
+                            } else {
+                                Text(route.displayTitle)
+                            }
+                        }
+                    }
+                }
+                .disabled(model.history.isEmpty)
+                Divider()
                 ForEach(
                     Array(StandardReports.financialStatements.enumerated()),
                     id: \.element.id

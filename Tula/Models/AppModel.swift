@@ -26,6 +26,57 @@ final class AppModel {
     var pendingRoute: Route?
     var omnibarRequested = false
 
+    // Navigation history (browser-style): every displayed route in order,
+    // with a cursor for back/forward. History jumps navigate through
+    // pendingRoute with recording suppressed for that one transition.
+    private(set) var history: [Route] = []
+    private(set) var historyIndex = -1
+    private var suppressNextHistoryRecord = false
+
+    var canGoBack: Bool { historyIndex > 0 }
+    var canGoForward: Bool { historyIndex >= 0 && historyIndex < history.count - 1 }
+
+    func recordVisit(_ route: Route) {
+        if suppressNextHistoryRecord {
+            suppressNextHistoryRecord = false
+            return
+        }
+        if history.indices.contains(historyIndex), history[historyIndex] == route {
+            return
+        }
+        if historyIndex < history.count - 1 {
+            history.removeSubrange((historyIndex + 1)...)
+        }
+        history.append(route)
+        if history.count > 50 {
+            history.removeFirst(history.count - 50)
+        }
+        historyIndex = history.count - 1
+    }
+
+    func goBack() {
+        guard canGoBack else { return }
+        historyIndex -= 1
+        navigateToCurrentHistoryEntry()
+    }
+
+    func goForward() {
+        guard canGoForward else { return }
+        historyIndex += 1
+        navigateToCurrentHistoryEntry()
+    }
+
+    func jumpToHistory(_ index: Int) {
+        guard history.indices.contains(index), index != historyIndex else { return }
+        historyIndex = index
+        navigateToCurrentHistoryEntry()
+    }
+
+    private func navigateToCurrentHistoryEntry() {
+        suppressNextHistoryRecord = true
+        pendingRoute = history[historyIndex]
+    }
+
     /// The write gate (ARCHITECTURE.md §6): OFF by default, session-only,
     /// toggled by the toolbar lock. While locked, no write path exists.
     private(set) var writesUnlocked = false
