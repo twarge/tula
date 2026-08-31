@@ -196,6 +196,22 @@ enum DemoFixtures {
               "issingle": 0,
               "is_submittable": 1,
               "title_field": "customer_name",
+              "__dashboard": {
+                "fieldname": "sales_invoice",
+                "non_standard_fieldnames": {
+                  "Journal Entry": "reference_name",
+                  "Payment Entry": "reference_name",
+                  "Sales Invoice": "return_against"
+                },
+                "internal_links": {
+                  "Sales Order": ["items", "sales_order"]
+                },
+                "transactions": [
+                  {"label": "Payment", "items": ["Payment Entry", "Journal Entry"]},
+                  {"label": "Reference", "items": ["Sales Order"]},
+                  {"label": "Returns", "items": ["Sales Invoice"]}
+                ]
+              },
               "links": [
                 {"link_doctype": "Payment Entry", "link_fieldname": "reference_name", "group": "Payments"},
                 {"link_doctype": "Delivery Note", "link_fieldname": "against_sales_invoice", "group": "Fulfilment"}
@@ -352,7 +368,7 @@ enum DemoFixtures {
               "is_return": 0,
               "other_charges_calculation": "<div class=\"tax-break-up\" style=\"overflow-x: auto;\"><table class=\"table table-bordered table-hover\"><thead><tr><th class=\"text-left\">Item</th><th class=\"text-right\">Taxable Amount</th><th class=\"text-right\">Shipping &amp; Handling</th></tr></thead><tbody><tr><td>WT-1000</td><td class=\"text-right\">$ 7,400.00</td><td class=\"text-right\">(5.0%)<br>$ 370.00</td></tr><tr><td>WT-2400</td><td class=\"text-right\">$ 4,800.00</td><td class=\"text-right\">(5.0%)<br>$ 240.00</td></tr><tr><td>MNT-KIT</td><td class=\"text-right\">$ 950.00</td><td class=\"text-right\">(5.0%)<br>$ 47.50</td></tr></tbody></table></div>",
               "items": [
-                {"name": "row1", "item_code": "WT-1000", "item_name": "Wind Turbine 1kW", "qty": 4.0, "rate": 1850.0, "amount": 7400.0},
+                {"name": "row1", "sales_order": "SAL-ORD-2025-00031", "item_code": "WT-1000", "item_name": "Wind Turbine 1kW", "qty": 4.0, "rate": 1850.0, "amount": 7400.0},
                 {"name": "row2", "item_code": "WT-2400", "item_name": "Wind Turbine 2.4kW", "qty": 2.0, "rate": 2400.0, "amount": 4800.0},
                 {"name": "row3", "item_code": "MNT-KIT", "item_name": "Mounting Kit", "qty": 10.0, "rate": 95.0, "amount": 950.0}
               ],

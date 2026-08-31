@@ -126,8 +126,8 @@ struct RouteView: View {
                 ListScreen(doctype: doctype)
             case .tree(let doctype):
                 TreeScreen(doctype: doctype)
-            case .linkedList(let doctype, let fieldname, let value):
-                ListScreen(doctype: doctype, initialFilters: [fieldname: value])
+            case .linkedList(let doctype, let filters):
+                ListScreen(doctype: doctype, initialFilters: filters)
             case .document(let doctype, let name):
                 DocumentScreen(doctype: doctype, name: name)
             }

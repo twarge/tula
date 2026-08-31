@@ -69,6 +69,15 @@ public struct DemoDataSource: DataSource {
         return Self.sort(Self.apply(filters, to: docs), by: orderBy)
     }
 
+    public func openCounts(doctype: String, name: String) async throws -> [String: LinkCount]? {
+        guard doctype == "Sales Invoice" else { return nil }
+        return [
+            "Payment Entry": LinkCount(total: 2, open: 1),
+            "Journal Entry": LinkCount(total: 0, open: 0),
+            "Sales Invoice": LinkCount(total: 0, open: 0),
+        ]
+    }
+
     public func count(_ doctype: String, filters: [ListFilter]) async throws -> Int? {
         let docs = try await list(
             doctype, fields: [], filters: filters, orderBy: nil, limitStart: 0,

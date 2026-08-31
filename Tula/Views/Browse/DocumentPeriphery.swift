@@ -10,10 +10,22 @@ import SwiftUI
 struct DocumentPeriphery: Sendable {
     struct Connection: Identifiable, Sendable {
         var doctype: String
-        var fieldname: String
         var count: Int
+        /// Documents needing action (Desk's orange badge).
+        var openCount: Int = 0
         var group: String?
-        var id: String { doctype }
+        /// Equality filters selecting the linked list (external links).
+        var filters: [String: String] = [:]
+        /// Names this document references directly (internal links).
+        var internalNames: [String] = []
+        var id: String { "\(group ?? "")|\(doctype)" }
+    }
+
+    /// One party stat from `__onload.dashboard_info` (Annual Billing…).
+    struct Stat: Identifiable, Sendable {
+        var label: String
+        var value: String
+        var id: String { label }
     }
 
     struct Attachment: Identifiable, Sendable {
@@ -50,6 +62,7 @@ struct DocumentPeriphery: Sendable {
     var shares: [String] = []
     var likedBy: [String] = []
     var connections: [Connection] = []
+    var stats: [Stat] = []
     var attachments: [Attachment] = []
     var comments: [Comment] = []
     var activity: [ActivityEntry] = []
@@ -155,15 +168,46 @@ struct DocumentPeriphery: Sendable {
                     summary: "Created this document"))
         }
 
-        // Dashboard: every linked DocType from the metadata, counted in one
-        // batched call when the server supports it.
-        let links = Array(meta.connectionLinks.prefix(16))
-        if !links.isEmpty {
-            let batched = (try? await source.openCounts(doctype: doctype, name: name)) ?? nil
-            for link in links {
+        // Dashboard tab. Desk's `__dashboard` blueprint (in the getdoctype
+        // payload) is authoritative: it merges the module dashboard with the
+        // DocType's links table and carries the group layout plus the filter
+        // fieldnames each linked list actually needs. The bare links table is
+        // only a fallback for DocTypes without one.
+        let batched = (try? await source.openCounts(doctype: doctype, name: name)) ?? nil
+        if let spec = meta.dashboard {
+            for group in spec.transactions {
+                for linked in group.doctypes {
+                    var connection = Connection(
+                        doctype: linked, count: 0,
+                        group: group.label.isEmpty ? nil : group.label)
+                    if let path = spec.internalLinks[linked] {
+                        connection.internalNames = internalLinkNames(
+                            path: path, document: document)
+                        connection.count = connection.internalNames.count
+                    } else if let filters = spec.filters(linking: linked, to: name) {
+                        connection.filters = filters
+                        if let counts = batched?[linked] {
+                            connection.count = counts.total ?? counts.open ?? 0
+                            connection.openCount = counts.open ?? 0
+                        } else {
+                            connection.count =
+                                ((try? await source.count(
+                                    linked,
+                                    filters: filters.map {
+                                        ListFilter($0.key, "=", .string($0.value))
+                                    })) ?? nil) ?? 0
+                        }
+                    } else {
+                        continue
+                    }
+                    periphery.connections.append(connection)
+                }
+            }
+        } else {
+            for link in meta.connectionLinks.prefix(16) {
                 let count: Int
-                if let batched {
-                    count = batched[link.doctype] ?? 0
+                if let counts = batched?[link.doctype] {
+                    count = counts.total ?? counts.open ?? 0
                 } else {
                     count =
                         ((try? await source.count(
@@ -173,11 +217,66 @@ struct DocumentPeriphery: Sendable {
                 }
                 periphery.connections.append(
                     Connection(
-                        doctype: link.doctype, fieldname: link.fieldname, count: count,
-                        group: link.group))
+                        doctype: link.doctype, count: count,
+                        openCount: batched?[link.doctype]?.open ?? 0,
+                        group: link.group, filters: [link.fieldname: name]))
             }
         }
+
+        // Party stats (Annual Billing, Total Unpaid) ride in Desk's onload
+        // payload; label mapping mirrors Desk's client-side convention.
+        if let onload = (try? await source.documentOnload(doctype: doctype, name: name))
+            ?? nil,
+            let info = onload["dashboard_info"]?.arrayValue {
+            periphery.stats = stats(fromDashboardInfo: info)
+        }
         return periphery
+    }
+
+    /// Distinct linked names on the document at [table field, link field]
+    /// or [link field] — Desk's internal links.
+    private static func internalLinkNames(path: [String], document: Document) -> [String] {
+        var seen = Set<String>()
+        var names: [String] = []
+        if path.count >= 2 {
+            for row in document.raw[path[0]]?.arrayValue ?? [] {
+                if let value = row.objectValue?[path[1]]?.nonEmptyString,
+                    seen.insert(value).inserted {
+                    names.append(value)
+                }
+            }
+        } else if let field = path.first,
+            let value = document.raw[field]?.nonEmptyString {
+            names.append(value)
+        }
+        return names
+    }
+
+    /// Desk labels these client-side (erpnext's party dashboard indicators);
+    /// mirror the convention, falling back to a prettified key.
+    private static func stats(fromDashboardInfo entries: [FrappeValue]) -> [Stat] {
+        let known = [
+            ("billing_this_year", "Annual Billing"),
+            ("total_unpaid", "Total Unpaid"),
+            ("loyalty_points", "Loyalty Points"),
+        ]
+        var stats: [Stat] = []
+        let multiCompany = entries.count > 1
+        for entry in entries {
+            guard let dict = entry.objectValue else { continue }
+            let currency = dict["currency"]?.nonEmptyString
+            let company = dict["company"]?.nonEmptyString
+            for (key, label) in known {
+                guard let value = dict[key] else { continue }
+                let formatted = ValueFormatting.string(
+                    for: value, fieldtype: key == "loyalty_points" ? .int : .currency,
+                    currencyCode: currency)
+                let fullLabel =
+                    multiCompany && company != nil ? "\(label) (\(company!))" : label
+                stats.append(Stat(label: fullLabel, value: formatted))
+            }
+        }
+        return stats
     }
 
     /// "Changed Status → Paid, Outstanding Amount → 0" from a Version's diff.
@@ -835,29 +934,6 @@ struct PeripheryTrailingSections: View {
     @State private var editDraft = ""
 
     var body: some View {
-        if !periphery.connections.isEmpty {
-            GroupBox {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(groupedConnections, id: \.title) { group in
-                        VStack(alignment: .leading, spacing: 6) {
-                            if let title = group.title.isEmpty ? nil : group.title {
-                                Text(title)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            ForEach(group.connections) { connection in
-                                connectionRow(connection)
-                            }
-                        }
-                    }
-                }
-                .padding(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                Text("Dashboard").font(.headline).padding(.bottom, 2)
-            }
-        }
-
         if !periphery.comments.isEmpty || model.writesUnlocked {
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
@@ -1020,7 +1096,76 @@ struct PeripheryTrailingSections: View {
         }
     }
 
-    private var groupedConnections: [(title: String, connections: [DocumentPeriphery.Connection])] {
+}
+
+/// Desk's Dashboard form tab, native: the party stats line and the grouped
+/// linked-DocType connections, laid out in adaptive columns like Desk's
+/// three-column dashboard.
+struct DashboardTabView: View {
+    let periphery: DocumentPeriphery
+
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if !periphery.stats.isEmpty {
+                GroupBox {
+                    HStack(spacing: 24) {
+                        ForEach(periphery.stats) { stat in
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(statColor(stat))
+                                    .frame(width: 8, height: 8)
+                                Text("\(stat.label):")
+                                    .foregroundStyle(.secondary)
+                                Text(stat.value)
+                                    .fontWeight(.medium)
+                                    .monospacedDigit()
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(4)
+                } label: {
+                    Text("Stats").font(.headline).padding(.bottom, 2)
+                }
+            }
+            if !periphery.connections.isEmpty {
+                GroupBox {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.adaptive(minimum: 220), alignment: .topLeading)
+                        ],
+                        alignment: .leading, spacing: 20
+                    ) {
+                        ForEach(groupedConnections, id: \.title) { group in
+                            VStack(alignment: .leading, spacing: 6) {
+                                if let title = group.title.isEmpty ? nil : group.title {
+                                    Text(title)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                ForEach(group.connections) { connection in
+                                    connectionRow(connection)
+                                }
+                            }
+                        }
+                    }
+                    .padding(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    Text("Connections").font(.headline).padding(.bottom, 2)
+                }
+            }
+        }
+    }
+
+    private func statColor(_ stat: DocumentPeriphery.Stat) -> Color {
+        stat.label.localizedCaseInsensitiveContains("unpaid") ? .orange : .blue
+    }
+
+    private var groupedConnections:
+        [(title: String, connections: [DocumentPeriphery.Connection])] {
         var order: [String] = []
         var groups: [String: [DocumentPeriphery.Connection]] = [:]
         for connection in periphery.connections {
@@ -1033,24 +1178,26 @@ struct PeripheryTrailingSections: View {
 
     @ViewBuilder
     private func connectionRow(_ connection: DocumentPeriphery.Connection) -> some View {
-        if connection.count > 0 {
+        if !connection.internalNames.isEmpty {
+            // Internal link: this document references those names directly.
+            Menu {
+                ForEach(connection.internalNames, id: \.self) { linkedName in
+                    Button(linkedName) {
+                        model.pendingRoute = .document(
+                            doctype: connection.doctype, name: linkedName)
+                    }
+                }
+            } label: {
+                rowLabel(connection)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+        } else if connection.count > 0 {
             NavigationLink(
                 value: Route.linkedList(
-                    doctype: connection.doctype,
-                    fieldname: connection.fieldname,
-                    value: documentName)
+                    doctype: connection.doctype, filters: connection.filters)
             ) {
-                HStack {
-                    Text(connection.doctype)
-                    Spacer()
-                    Text("\(connection.count)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
+                rowLabel(connection)
             }
             .buttonStyle(.plain)
         } else {
@@ -1062,6 +1209,29 @@ struct PeripheryTrailingSections: View {
             }
             .foregroundStyle(.tertiary)
         }
+    }
+
+    private func rowLabel(_ connection: DocumentPeriphery.Connection) -> some View {
+        HStack {
+            Text(connection.doctype)
+            Spacer()
+            if connection.openCount > 0 {
+                Text("\(connection.openCount)")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.orange.opacity(0.18), in: Capsule())
+                    .foregroundStyle(.orange)
+            }
+            Text("\(connection.count)")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
     }
 }
 

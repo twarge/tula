@@ -18,8 +18,9 @@ enum Route: Hashable {
     case workspace(String)
     case doctypeList(String)
     case tree(String)
-    /// A DocType list pre-filtered by one field (Connections tab routes).
-    case linkedList(doctype: String, fieldname: String, value: String)
+    /// A DocType list pre-filtered by equality filters (Dashboard-tab
+    /// connection routes; may carry several, e.g. party + party_type).
+    case linkedList(doctype: String, filters: [String: String])
     case document(doctype: String, name: String)
 
     /// Deterministic identity for `.id()` — keeps per-screen @State scoped
@@ -41,8 +42,10 @@ enum Route: Hashable {
             return "list|\(doctype)"
         case .tree(let doctype):
             return "tree|\(doctype)"
-        case .linkedList(let doctype, let fieldname, let value):
-            return "linked|\(doctype)|\(fieldname)|\(value)"
+        case .linkedList(let doctype, let filters):
+            let filterKey = filters.keys.sorted().map { "\($0)=\(filters[$0] ?? "")" }
+                .joined(separator: "&")
+            return "linked|\(doctype)|\(filterKey)"
         case .document(let doctype, let name):
             return "doc|\(doctype)|\(name)"
         }

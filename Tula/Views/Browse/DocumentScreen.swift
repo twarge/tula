@@ -46,7 +46,10 @@ struct DocumentScreen: View {
                         VStack(alignment: .leading, spacing: 16) {
                             DocumentFormView(
                                 meta: loaded.meta, childMetas: loaded.childMetas,
-                                document: loaded.document, gridColumns: loaded.gridColumns)
+                                document: loaded.document, gridColumns: loaded.gridColumns,
+                                dashboard: loaded.periphery.connections.isEmpty
+                                    && loaded.periphery.stats.isEmpty
+                                    ? nil : DashboardTabView(periphery: loaded.periphery))
                             PeripheryTrailingSections(
                                 periphery: loaded.periphery, documentName: name,
                                 doctype: doctype,
@@ -133,24 +136,31 @@ struct DocumentScreen: View {
 /// The reusable form body: tabs → sections → columns → fields. Used by
 /// `DocumentScreen` for top-level documents and by the child-row detail
 /// sheet for table rows.
-struct DocumentFormView: View {
+struct DocumentFormView<DashboardContent: View>: View {
     let meta: DocTypeMeta
     let childMetas: [String: DocTypeMeta]
     let document: Document
     let gridColumns: [String: [GridColumn]]
+    /// Desk tucks the form dashboard in as the second tab; the screen passes
+    /// it here so the tab strip can host it (nil for child-row sheets).
+    let dashboard: DashboardContent?
     private let layout: FormLayout
     private let evaluator: DependsOnEvaluator
+
+    /// Synthetic tab id for the injected Dashboard tab (real tabs are 0…n).
+    private static var dashboardTabID: Int { -1 }
 
     @State private var selectedTab = 0
 
     init(
         meta: DocTypeMeta, childMetas: [String: DocTypeMeta], document: Document,
-        gridColumns: [String: [GridColumn]] = [:]
+        gridColumns: [String: [GridColumn]] = [:], dashboard: DashboardContent?
     ) {
         self.meta = meta
         self.childMetas = childMetas
         self.document = document
         self.gridColumns = gridColumns
+        self.dashboard = dashboard
         self.layout = FormLayout.parse(meta)
         self.evaluator = DependsOnEvaluator(document: document)
     }
@@ -160,9 +170,15 @@ struct DocumentFormView: View {
         let visibleTabs = layout.tabs.filter { evaluator.isVisible($0.breakField?.dependsOn) }
 
         VStack(alignment: .leading, spacing: 16) {
-            if visibleTabs.count > 1 {
+            if visibleTabs.count > 1 || dashboard != nil {
                 Picker("Tab", selection: $selectedTab) {
-                    ForEach(visibleTabs) { tab in
+                    if let first = visibleTabs.first {
+                        Text(first.label).tag(first.id)
+                    }
+                    if dashboard != nil {
+                        Text("Dashboard").tag(Self.dashboardTabID)
+                    }
+                    ForEach(Array(visibleTabs.dropFirst())) { tab in
                         Text(tab.label).tag(tab.id)
                     }
                 }
@@ -170,12 +186,16 @@ struct DocumentFormView: View {
                 .labelsHidden()
             }
 
-            let tab = visibleTabs.first { $0.id == selectedTab } ?? visibleTabs.first
-            if let tab {
-                ForEach(cards(for: tab)) { card in
-                    FormCardView(
-                        card: card, childMetas: childMetas, document: document,
-                        gridColumns: gridColumns)
+            if selectedTab == Self.dashboardTabID, let dashboard {
+                dashboard
+            } else {
+                let tab = visibleTabs.first { $0.id == selectedTab } ?? visibleTabs.first
+                if let tab {
+                    ForEach(cards(for: tab)) { card in
+                        FormCardView(
+                            card: card, childMetas: childMetas, document: document,
+                            gridColumns: gridColumns)
+                    }
                 }
             }
         }
@@ -604,5 +624,17 @@ private struct ChildRowDetailSheet: View {
             return value
         }
         return "Row Details"
+    }
+}
+
+extension DocumentFormView where DashboardContent == EmptyView {
+    /// Plain form body without a Dashboard tab (child-row detail sheets).
+    init(
+        meta: DocTypeMeta, childMetas: [String: DocTypeMeta], document: Document,
+        gridColumns: [String: [GridColumn]] = [:]
+    ) {
+        self.init(
+            meta: meta, childMetas: childMetas, document: document,
+            gridColumns: gridColumns, dashboard: nil)
     }
 }

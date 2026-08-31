@@ -478,6 +478,34 @@ final class SortCountAndSnapshotTests: XCTestCase {
 }
 
 final class WriteClientTests: XCTestCase {
+    func testDashboardSpecParsing() throws {
+        let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))
+        let spec = try XCTUnwrap(bundle.metas.first?.dashboard)
+        XCTAssertEqual(spec.transactions.map(\.label), ["Payment", "Reference", "Returns"])
+        XCTAssertEqual(spec.transactions[0].doctypes, ["Payment Entry", "Journal Entry"])
+        // Non-standard fieldname override wins over the default fieldname.
+        XCTAssertEqual(
+            spec.filters(linking: "Payment Entry", to: "SI-1"),
+            ["reference_name": "SI-1"])
+        XCTAssertEqual(
+            spec.filters(linking: "Sales Invoice", to: "SI-1"), ["return_against": "SI-1"])
+        // Internal links produce no list filters — their names come from the doc.
+        XCTAssertNil(spec.filters(linking: "Sales Order", to: "SI-1"))
+        XCTAssertEqual(spec.internalLinks["Sales Order"], ["items", "sales_order"])
+
+        // Dynamic links add the party_type-style second filter.
+        let supplierDashboard = """
+            {"fieldname": "supplier",
+             "non_standard_fieldnames": {"Payment Entry": "party"},
+             "dynamic_links": {"party": ["Supplier", "party_type"]},
+             "transactions": [{"label": "Payments", "items": ["Payment Entry"]}]}
+            """
+        let party = DashboardSpec(raw: try FrappeValue.decode(from: Data(supplierDashboard.utf8)))
+        XCTAssertEqual(
+            party?.filters(linking: "Payment Entry", to: "ACME"),
+            ["party": "ACME", "party_type": "Supplier"])
+    }
+
     func testDuplicableRawStripsSystemFields() throws {
         let doc = try Document.list(from: Data(DemoFixtures.salesInvoiceDocs.utf8))[0]
         let copy = WriteSession.duplicableRaw(doc.raw, doctype: "Sales Invoice")

@@ -357,6 +357,18 @@ missing is navigation and filters:
    Connections tab counts → filtered-list routes; read-only comments/activity timeline
    (`_comment_count`, Comment/Version DocTypes); assignment/tag chips. (M–L)
 
+   *Dashboard tab (Aug 2026):* the form dashboard is a native tab injected second in the
+   tab strip, exactly where Desk puts it, fed by the three sources that drive Desk's:
+   the `__dashboard` blueprint riding in the `getdoctype` payload (grouped transactions,
+   default/non-standard link fieldnames, `dynamic_links` like party_type, `internal_links`
+   whose names come off the document itself), `get_open_count` for both totals and open
+   counts (orange badge), and `__onload.dashboard_info` from `getdoc` for party stats
+   (Annual Billing / Total Unpaid, currency-formatted per company). Connection rows route
+   to lists pre-filtered with the *correct* fieldnames (e.g. Payment Entry via
+   `party` + `party_type`, not the default fieldname); internal links open a menu of the
+   referenced documents. `getdoc` is read-only in intent — the server may record a
+   "seen" bookkeeping entry, exactly as opening the form in Desk does.
+
 ### Phase 5 — dashboards, polish, distribution ✅ shipped Aug 2026
 
 Shipped: workspace number cards + dashboard charts (Swift Charts), native PDF export,

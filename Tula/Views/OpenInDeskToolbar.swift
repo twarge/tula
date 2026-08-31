@@ -38,7 +38,7 @@ struct OpenInDeskToolbar: ToolbarContent {
             return DeskURL.list(base: base, doctype: doctype)
         case .tree(let doctype):
             return DeskURL.tree(base: base, doctype: doctype)
-        case .linkedList(let doctype, _, _):
+        case .linkedList(let doctype, _):
             return DeskURL.list(base: base, doctype: doctype)
         case .document(let doctype, let name):
             return DeskURL.document(base: base, doctype: doctype, name: name)

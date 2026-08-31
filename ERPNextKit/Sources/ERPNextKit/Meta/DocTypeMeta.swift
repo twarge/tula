@@ -99,6 +99,11 @@ public struct DocTypeMeta: Sendable, Hashable {
         } ?? []
     }
 
+    /// Desk's form-dashboard blueprint, when the server ships one.
+    public var dashboard: DashboardSpec? {
+        DashboardSpec(raw: raw["__dashboard"])
+    }
+
     /// Default list sort. `sort_field` occasionally carries a comma list
     /// ("posting_date, creation"); the first component is the primary sort.
     public var sortField: String {
@@ -226,5 +231,64 @@ public enum MetaDecoder {
         return MetaBundle(
             metas: metas, gridColumns: gridColumns,
             listSortBy: listSortBy, listSortDescending: listSortDescending)
+    }
+}
+
+/// The `__dashboard` object riding in the getdoctype response: Desk's
+/// form-dashboard blueprint. It merges the module's `*_dashboard.py` data
+/// with the DocType's links table — grouped linked DocTypes plus the
+/// fieldname conventions needed to filter each linked list correctly.
+public struct DashboardSpec: Sendable, Hashable {
+    public struct Group: Sendable, Hashable {
+        public var label: String
+        public var doctypes: [String]
+    }
+
+    /// Default fieldname on linked DocTypes that refers back to this one.
+    public var fieldname: String?
+    /// Per-DocType overrides (e.g. Payment Entry links via `party`).
+    public var nonStandardFieldnames: [String: String]
+    /// fieldname → [doctype value, type fieldname]: a link through this
+    /// fieldname also needs `<type fieldname> = <doctype value>` (party_type).
+    public var dynamicLinks: [String: [String]]
+    /// DocTypes referenced *by* this document; the value is the field path
+    /// on the document ([child table field, link field] or [link field]).
+    public var internalLinks: [String: [String]]
+    public var transactions: [Group]
+
+    init?(raw: FrappeValue?) {
+        guard let dict = raw?.objectValue else { return nil }
+        fieldname = dict["fieldname"]?.nonEmptyString
+        nonStandardFieldnames = (dict["non_standard_fieldnames"]?.objectValue ?? [:])
+            .compactMapValues(\.nonEmptyString)
+        dynamicLinks = (dict["dynamic_links"]?.objectValue ?? [:]).compactMapValues {
+            $0.arrayValue?.compactMap(\.nonEmptyString)
+        }
+        internalLinks = (dict["internal_links"]?.objectValue ?? [:]).compactMapValues { value in
+            if let path = value.arrayValue?.compactMap(\.nonEmptyString), !path.isEmpty {
+                return path
+            }
+            return value.nonEmptyString.map { [$0] }
+        }
+        transactions = (dict["transactions"]?.arrayValue ?? []).compactMap { entry in
+            guard let dict = entry.objectValue else { return nil }
+            let doctypes = (dict["items"]?.arrayValue ?? []).compactMap(\.nonEmptyString)
+            guard !doctypes.isEmpty else { return nil }
+            return Group(label: dict["label"]?.nonEmptyString ?? "", doctypes: doctypes)
+        }
+        if transactions.isEmpty { return nil }
+    }
+
+    /// Equality filters selecting documents of `linkedDoctype` that refer to
+    /// this document, or nil for internal links (whose names live on the
+    /// document itself).
+    public func filters(linking linkedDoctype: String, to name: String) -> [String: String]? {
+        guard internalLinks[linkedDoctype] == nil else { return nil }
+        guard let field = nonStandardFieldnames[linkedDoctype] ?? fieldname else { return nil }
+        var filters = [field: name]
+        if let dynamic = dynamicLinks[field], dynamic.count >= 2 {
+            filters[dynamic[1]] = dynamic[0]
+        }
+        return filters
     }
 }

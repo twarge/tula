@@ -74,6 +74,18 @@ public struct DashboardChartData: Sendable, Hashable, Identifiable {
     public var id: String { name }
 }
 
+/// Counts for one linked DocType on a form dashboard: the total number of
+/// linked documents, and how many are "open" (Desk's orange badge).
+public struct LinkCount: Sendable, Hashable {
+    public var total: Int?
+    public var open: Int?
+
+    public init(total: Int? = nil, open: Int? = nil) {
+        self.total = total
+        self.open = open
+    }
+}
+
 /// One transition of a Desk Workflow (fully metadata-driven).
 public struct WorkflowTransition: Sendable, Hashable {
     public let state: String
@@ -161,13 +173,16 @@ public protocol DataSource: Sendable {
     func dashboardChart(name: String) async throws -> DashboardChartData?
     /// Linked-document counts for a document's dashboard, keyed by DocType
     /// (Desk's batched get_open_count).
-    func openCounts(doctype: String, name: String) async throws -> [String: Int]?
+    func openCounts(doctype: String, name: String) async throws -> [String: LinkCount]?
     /// The signed-in user's identifier (email), when the source knows it.
     func loggedUser() async throws -> String?
     /// Whether `user` follows the document (nil when unknown).
     func isFollowing(doctype: String, name: String, user: String) async throws -> Bool?
     /// The active Workflow for a DocType, if any.
     func workflow(for doctype: String) async throws -> WorkflowInfo?
+    /// The `__onload` payload Desk receives with a document (party
+    /// dashboard stats, etc.); nil when the source has none.
+    func documentOnload(doctype: String, name: String) async throws -> [String: FrappeValue]?
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -217,7 +232,7 @@ extension DataSource {
         nil
     }
 
-    public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {
+    public func openCounts(doctype: String, name: String) async throws -> [String: LinkCount]? {
         nil
     }
 
@@ -230,6 +245,11 @@ extension DataSource {
     }
 
     public func workflow(for doctype: String) async throws -> WorkflowInfo? {
+        nil
+    }
+
+    public func documentOnload(doctype: String, name: String) async throws
+        -> [String: FrappeValue]? {
         nil
     }
 
@@ -386,21 +406,32 @@ public struct LiveDataSource: DataSource {
         return try FrappeValue.decode(from: data).objectValue?["message"]?.boolValue
     }
 
-    public func openCounts(doctype: String, name: String) async throws -> [String: Int]? {
+    public func openCounts(doctype: String, name: String) async throws -> [String: LinkCount]? {
         let data = try await client.data(
             for: .method(.openCount, parameters: ["doctype": doctype, "name": name]))
         guard let root = try FrappeValue.decode(from: data).objectValue,
             let message = root["message"]?.objectValue,
             let entries = message["count"]?.arrayValue
         else { return nil }
-        var counts: [String: Int] = [:]
+        var counts: [String: LinkCount] = [:]
         for entry in entries {
             guard let dict = entry.objectValue,
                 let doctype = dict["name"]?.nonEmptyString
             else { continue }
-            counts[doctype] = dict["count"]?.intValue ?? dict["open_count"]?.intValue ?? 0
+            counts[doctype] = LinkCount(
+                total: dict["count"]?.intValue, open: dict["open_count"]?.intValue)
         }
         return counts.isEmpty ? nil : counts
+    }
+
+    public func documentOnload(doctype: String, name: String) async throws
+        -> [String: FrappeValue]? {
+        let data = try await client.data(
+            for: .method(.getDoc, parameters: ["doctype": doctype, "name": name]))
+        guard let root = try FrappeValue.decode(from: data).objectValue else { return nil }
+        let docs =
+            root["docs"]?.arrayValue ?? root["message"]?.objectValue?["docs"]?.arrayValue
+        return docs?.first?.objectValue?["__onload"]?.objectValue
     }
 
     public func workflow(for doctype: String) async throws -> WorkflowInfo? {
