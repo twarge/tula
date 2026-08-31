@@ -478,6 +478,21 @@ final class SortCountAndSnapshotTests: XCTestCase {
 }
 
 final class WriteClientTests: XCTestCase {
+    func testDuplicableRawStripsSystemFields() throws {
+        let doc = try Document.list(from: Data(DemoFixtures.salesInvoiceDocs.utf8))[0]
+        let copy = WriteSession.duplicableRaw(doc.raw, doctype: "Sales Invoice")
+        XCTAssertNil(copy["name"])
+        XCTAssertNil(copy["docstatus"])
+        XCTAssertNil(copy["_assign"])
+        XCTAssertEqual(copy["doctype"]?.stringValue, "Sales Invoice")
+        XCTAssertEqual(copy["customer"]?.stringValue, "Northwind Research")
+        let items = try XCTUnwrap(copy["items"]?.arrayValue)
+        XCTAssertEqual(items.count, 3)
+        XCTAssertNil(items[0].objectValue?["name"])
+        XCTAssertEqual(items[0].objectValue?["item_code"]?.stringValue, "WT-1000")
+    }
+
+
     func testMultipartBodyShape() {
         let body = WriteClient.multipartBody(
             boundary: "B", fileName: "a b.pdf", fileData: Data("XYZ".utf8),

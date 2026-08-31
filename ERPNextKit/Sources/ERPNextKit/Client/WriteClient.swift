@@ -17,10 +17,16 @@ public enum WriteMethod: String, Sendable, CaseIterable {
     case followDocument = "frappe.desk.form.document_follow.follow_document"
     case unfollowDocument = "frappe.desk.form.document_follow.unfollow_document"
     case createReminder = "frappe.automation.doctype.reminder.reminder.create_new_reminder"
-    /// Generic doc delete — reachable only through `WriteSession`'s typed
-    /// operations, which pin the doctype (Comment, File).
+    /// Doc delete: pinned to Comment/File by the collaboration operations,
+    /// or any doctype via the confirmed lifecycle delete.
     case deleteDocument = "frappe.client.delete"
     case uploadFile = "upload_file"
+    // W2 — document lifecycle (ARCHITECTURE §12 write map).
+    case submitDocument = "frappe.client.submit"
+    case cancelDocument = "frappe.client.cancel"
+    case insertDocument = "frappe.client.insert"
+    case renameDocument = "frappe.model.rename_doc.update_document_title"
+    case applyWorkflow = "frappe.model.workflow.apply_workflow"
 }
 
 /// The only type in the kit able to issue a non-GET request. Deliberately
@@ -264,5 +270,95 @@ public struct WriteSession: Sendable {
     public func removeTag(_ tag: String, doctype: String, name: String) async throws {
         try await client.call(
             .removeTag, parameters: ["tag": tag, "dt": doctype, "dn": name])
+    }
+}
+
+
+// MARK: - W2 lifecycle operations
+
+extension WriteSession {
+    /// Submit a draft. The full document (including its `modified` token,
+    /// Frappe's optimistic lock) is posted back.
+    public func submit(documentRaw: [String: FrappeValue]) async throws {
+        let json = try FrappeValue.object(documentRaw).encodedJSONString()
+        try await client.call(.submitDocument, parameters: ["doc": json])
+    }
+
+    public func cancel(doctype: String, name: String) async throws {
+        try await client.call(
+            .cancelDocument, parameters: ["doctype": doctype, "name": name])
+    }
+
+    /// Lifecycle delete of a whole document — always behind an explicit
+    /// confirmation in the UI.
+    public func deleteDocument(doctype: String, name: String) async throws {
+        try await client.call(
+            .deleteDocument, parameters: ["doctype": doctype, "name": name])
+    }
+
+    /// Rename; returns the new name the server settled on.
+    public func rename(doctype: String, name: String, to newName: String) async throws
+        -> String {
+        let data = try await client.call(
+            .renameDocument,
+            parameters: [
+                "doctype": doctype, "docname": name, "name": newName, "merge": "0",
+            ])
+        return try FrappeValue.decode(from: data).objectValue?["message"]?.nonEmptyString
+            ?? newName
+    }
+
+    /// Duplicate: insert a copy with system fields stripped; returns the new
+    /// document's name.
+    public func duplicate(documentRaw: [String: FrappeValue], doctype: String) async throws
+        -> String {
+        let copy = Self.duplicableRaw(documentRaw, doctype: doctype)
+        let json = try FrappeValue.object(copy).encodedJSONString()
+        let data = try await client.call(.insertDocument, parameters: ["doc": json])
+        guard
+            let name = try FrappeValue.decode(from: data).objectValue?["message"]?
+                .objectValue?["name"]?.nonEmptyString
+        else {
+            throw ERPNextError(message: "The server did not return the new document's name.")
+        }
+        return name
+    }
+
+    /// Apply a workflow transition (Approve, Reject, …) to the document.
+    public func applyWorkflow(documentRaw: [String: FrappeValue], action: String) async throws {
+        let json = try FrappeValue.object(documentRaw).encodedJSONString()
+        try await client.call(
+            .applyWorkflow, parameters: ["doc": json, "action": action])
+    }
+
+    /// Copy of a document suitable for insertion: identity, audit, docstatus,
+    /// and collaboration fields removed, top-level and per child row.
+    static func duplicableRaw(
+        _ raw: [String: FrappeValue], doctype: String
+    ) -> [String: FrappeValue] {
+        let topStrip: Set<String> = [
+            "name", "owner", "creation", "modified", "modified_by", "docstatus",
+            "idx", "amended_from", "_assign", "_comments", "_user_tags",
+            "_liked_by", "_seen",
+        ]
+        let childStrip: Set<String> = [
+            "name", "parent", "owner", "creation", "modified", "modified_by",
+            "docstatus", "idx",
+        ]
+        var copy: [String: FrappeValue] = [:]
+        for (key, value) in raw where !topStrip.contains(key) {
+            if let rows = value.arrayValue,
+                rows.allSatisfy({ $0.objectValue != nil }), !rows.isEmpty {
+                copy[key] = .array(
+                    rows.map { row in
+                        .object(
+                            row.objectValue!.filter { !childStrip.contains($0.key) })
+                    })
+            } else {
+                copy[key] = value
+            }
+        }
+        copy["doctype"] = .string(doctype)
+        return copy
     }
 }

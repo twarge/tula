@@ -41,6 +41,10 @@ struct DocumentPeriphery: Sendable {
 
     var docstatus: Int?
     var isSubmittable = false
+    /// Active Workflow state and available transitions (metadata-driven;
+    /// empty when the DocType has no active workflow).
+    var workflowState: String?
+    var workflowActions: [String] = []
     var assignees: [String] = []
     var tags: [String] = []
     var shares: [String] = []
@@ -219,6 +223,7 @@ struct PeripheryBar: View {
     let documentName: String
     var actions: [DocumentAction] = []
     var doctype: String = ""
+    var documentRaw: [String: FrappeValue] = [:]
     var onMutate: () -> Void = {}
 
     @Environment(AppModel.self) private var model
@@ -230,6 +235,10 @@ struct PeripheryBar: View {
         if periphery.hasBarContent || !actions.isEmpty || model.writesUnlocked {
             HStack(spacing: 8) {
                 DocumentActionsCluster(actions: actions)
+                    .layoutPriority(1)
+                LifecycleCluster(
+                    doctype: doctype, name: documentName, documentRaw: documentRaw,
+                    periphery: periphery, onMutate: onMutate)
                     .layoutPriority(1)
                 if !actions.isEmpty && periphery.hasBarContent {
                     Divider().frame(height: 16)
@@ -267,7 +276,11 @@ struct PeripheryBar: View {
     private var chipsScroller: some View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    if periphery.isSubmittable, let docstatus = periphery.docstatus {
+                    // With an active workflow, its state is the document's
+                    // indicator (Desk shows it in place of the docstatus).
+                    if let workflowState = periphery.workflowState, !workflowState.isEmpty {
+                        StatusBadge(status: workflowState)
+                    } else if periphery.isSubmittable, let docstatus = periphery.docstatus {
                         StatusBadge(status: Self.docstatusLabel(docstatus))
                     }
                     ForEach(periphery.assignees, id: \.self) { assignee in

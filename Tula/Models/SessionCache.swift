@@ -40,6 +40,7 @@ final class SessionCache {
 
     private var doctypeNamesCache: [String]?
     private var reportsCatalogCache: [ReportInfo]?
+    private var workflowsCache: [String: WorkflowInfo?] = [:]
 
     /// All non-child, non-single DocType names — Desk's navigation universe.
     /// Falls back to empty (callers merge in known doctypes) when the API
@@ -57,6 +58,13 @@ final class SessionCache {
         let names = docs.map(\.name)
         doctypeNamesCache = names
         return names
+    }
+
+    func workflow(for doctype: String, using source: any DataSource) async -> WorkflowInfo? {
+        if let cached = workflowsCache[doctype] { return cached }
+        let info = (try? await source.workflow(for: doctype)) ?? nil
+        workflowsCache[doctype] = info
+        return info
     }
 
     func reportsCatalog(using source: any DataSource) async -> [ReportInfo] {
@@ -83,6 +91,7 @@ final class SessionCache {
         listColumns = [:]
         doctypeNamesCache = nil
         reportsCatalogCache = nil
+        workflowsCache = [:]
     }
 
     func removeAll() {
@@ -90,6 +99,7 @@ final class SessionCache {
         listColumns = [:]
         doctypeNamesCache = nil
         reportsCatalogCache = nil
+        workflowsCache = [:]
         screens = [:]
     }
 

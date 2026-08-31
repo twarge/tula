@@ -74,6 +74,40 @@ public struct DashboardChartData: Sendable, Hashable, Identifiable {
     public var id: String { name }
 }
 
+/// One transition of a Desk Workflow (fully metadata-driven).
+public struct WorkflowTransition: Sendable, Hashable {
+    public let state: String
+    public let action: String
+    public let nextState: String
+
+    public init(state: String, action: String, nextState: String) {
+        self.state = state
+        self.action = action
+        self.nextState = nextState
+    }
+}
+
+public struct WorkflowInfo: Sendable, Hashable {
+    public let name: String
+    /// Field on the document holding the workflow state.
+    public let stateField: String
+    public let transitions: [WorkflowTransition]
+
+    public init(name: String, stateField: String, transitions: [WorkflowTransition]) {
+        self.name = name
+        self.stateField = stateField
+        self.transitions = transitions
+    }
+
+    /// Ordered, de-duplicated actions available from a state.
+    public func actions(fromState state: String) -> [String] {
+        var seen = Set<String>()
+        return transitions.filter { $0.state == state }.compactMap { transition in
+            seen.insert(transition.action).inserted ? transition.action : nil
+        }
+    }
+}
+
 /// One result of a link-field autocomplete (`frappe.desk.search.search_link`).
 public struct LinkOption: Sendable, Hashable, Identifiable {
     public var value: String
@@ -132,6 +166,8 @@ public protocol DataSource: Sendable {
     func loggedUser() async throws -> String?
     /// Whether `user` follows the document (nil when unknown).
     func isFollowing(doctype: String, name: String, user: String) async throws -> Bool?
+    /// The active Workflow for a DocType, if any.
+    func workflow(for doctype: String) async throws -> WorkflowInfo?
     /// The Desk client script for a report; its filters are parsed from this.
     func reportScript(name: String) async throws -> String?
     func list(
@@ -190,6 +226,10 @@ extension DataSource {
     }
 
     public func isFollowing(doctype: String, name: String, user: String) async throws -> Bool? {
+        nil
+    }
+
+    public func workflow(for doctype: String) async throws -> WorkflowInfo? {
         nil
     }
 
@@ -361,6 +401,31 @@ public struct LiveDataSource: DataSource {
             counts[doctype] = dict["count"]?.intValue ?? dict["open_count"]?.intValue ?? 0
         }
         return counts.isEmpty ? nil : counts
+    }
+
+    public func workflow(for doctype: String) async throws -> WorkflowInfo? {
+        let matches = try await list(
+            "Workflow", fields: ["name", "workflow_state_field"],
+            filters: [
+                ListFilter("document_type", "=", .string(doctype)),
+                ListFilter("is_active", "=", .int(1)),
+            ],
+            orderBy: nil, limitStart: 0, limitPageLength: 1)
+        guard let match = matches.first else { return nil }
+        let doc = try await document("Workflow", name: match.name)
+        let transitions = (doc.raw["transitions"]?.arrayValue ?? []).compactMap {
+            row -> WorkflowTransition? in
+            guard let dict = row.objectValue,
+                let state = dict["state"]?.nonEmptyString,
+                let action = dict["action"]?.nonEmptyString,
+                let next = dict["next_state"]?.nonEmptyString
+            else { return nil }
+            return WorkflowTransition(state: state, action: action, nextState: next)
+        }
+        return WorkflowInfo(
+            name: doc.name,
+            stateField: doc["workflow_state_field"]?.nonEmptyString ?? "workflow_state",
+            transitions: transitions)
     }
 
     public func numberCardValue(cardName: String) async throws -> NumberCardValue? {

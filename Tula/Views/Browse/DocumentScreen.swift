@@ -40,6 +40,7 @@ struct DocumentScreen: View {
                         actions: DocumentAction.actions(
                             doctype: doctype, name: name, webBase: model.webBaseURL),
                         doctype: doctype,
+                        documentRaw: loaded.document.raw,
                         onMutate: { refreshToken += 1 })
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
@@ -103,9 +104,16 @@ struct DocumentScreen: View {
             let document = try await model.dataSource.document(doctype, name: name)
             let childMetas = Dictionary(
                 uniqueKeysWithValues: bundle.metas.dropFirst().map { ($0.name, $0) })
-            let periphery = await DocumentPeriphery.load(
+            var periphery = await DocumentPeriphery.load(
                 doctype: doctype, name: name, meta: meta, document: document,
                 using: model.dataSource)
+            if let workflow = await model.cache.workflow(
+                for: doctype, using: model.dataSource) {
+                let workflowState =
+                    document.raw[workflow.stateField]?.nonEmptyString ?? ""
+                periphery.workflowState = workflowState
+                periphery.workflowActions = workflow.actions(fromState: workflowState)
+            }
             let loaded = Loaded(
                 meta: meta, childMetas: childMetas, gridColumns: bundle.gridColumns,
                 document: document, periphery: periphery)

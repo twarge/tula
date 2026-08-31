@@ -136,7 +136,7 @@ struct WriteGateToolbar: ToolbarContent {
                 .help(
                     model.writesUnlocked
                         ? "Writes enabled for this session — click to return to read-only"
-                        : "Read-only — click to enable comments, assignments, and tags")
+                        : "Read-only — click to enable collaboration and document lifecycle actions")
             }
         }
     }

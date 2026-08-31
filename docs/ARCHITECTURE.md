@@ -148,12 +148,16 @@ voucher → party) works uniformly with no per-feature code.
 
 **The write gate (shipped 2026-08-30).** Writes exist behind a session-only gate, built
 exactly as prescribed below: `WriteClient` is the only type able to issue a non-GET request,
-it can only call the enumerated `WriteMethod` whitelist (add comment, add/remove assignment,
-add/remove tag — Desk's collaboration operations), and it exists only while the user has
-opened the toolbar lock (off by default, relocked on settings changes, unavailable in demo
-mode). Comment attribution and self-assignment use the signed-in identity from
-`frappe.auth.get_logged_user`. Document mutations (edit, submit, cancel, amend, delete,
-rename, duplicate) remain out of scope and impossible by construction.
+it can only call the enumerated `WriteMethod` whitelist, and it exists only while the user
+has opened the toolbar lock (off by default, relocked on settings changes, unavailable in
+demo mode). Comment attribution and self-assignment use the signed-in identity from
+`frappe.auth.get_logged_user`. The whitelist has since grown wave by wave (§12): W1 added
+the full collaboration surface (comments, assignments, tags, shares, likes, follow,
+attachments, reminders) and W2 the document lifecycle (submit, cancel, delete, rename via
+`update_document_title`, duplicate via `frappe.client.insert`, and metadata-driven workflow
+transitions via `apply_workflow`) — every lifecycle action behind an explicit confirmation.
+Field editing and document creation (W3–W4) remain out of scope and impossible by
+construction.
 
 **For any further writes**: keep this structure — do not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
 enumerated mutation whitelist (save/submit/cancel/amend), a distinct capability protocol
@@ -382,20 +386,26 @@ All writes stay behind the shipped gate (§6): enumerated operations only, sessi
 unlock, server-authoritative, no offline writes ever. Five waves, each keeping the app
 consistent if work stops after it:
 
-**W1 — Collaboration completion (S–M).** Rounds out what shipped:
+**W1 — Collaboration completion (S–M). *Shipped.*** Rounds out what shipped:
 share add/remove (`frappe.share.add/remove`), like toggle (`frappe.desk.like.toggle_like`),
 follow (`document_follow`), assign to *others* (user picker over the existing `search_link`
 on User; close/complete assignments), edit/delete own comments
 (`update_comment` / delete Comment), attachment upload (multipart `upload_file` — the one
 new transport shape `WriteClient` needs) and File delete, Remind Me (Reminder insert).
 
-**W2 — Lifecycle without field editing (M).** Submit and Cancel
+**W2 — Lifecycle without field editing (M). *Shipped.*** Submit and Cancel
 (`frappe.client.submit/cancel`) with hard confirmations; **workflow actions** — fully
 metadata-driven from the readable Workflow DocType (states, transitions, allowed roles) →
-native action buttons; Delete (`frappe.client.delete`, confirm-by-name for cancelled/draft
-docs); Rename (`update_document_title`); Duplicate (fetch → strip system fields → 
-`frappe.client.insert`). Requires a `WriteEndpoint` growth: enumerated REST verbs
-(PUT/POST/DELETE `/api/resource`) beside the method whitelist.
+native action buttons; Delete (`frappe.client.delete`, confirmed with the document's name,
+for cancelled/draft docs); Rename (`update_document_title`); Duplicate (fetch → strip
+system fields → `frappe.client.insert`). As built: five new `WriteMethod` cases carry the
+whole wave (the enumerated-REST-verb growth wasn't needed — every lifecycle operation has
+a whitelisted method); the `LifecycleCluster` in the periphery bar shows workflow
+transitions (which supersede plain Submit when a workflow is active), Submit/Cancel by
+docstatus, and Duplicate/Rename/Delete behind a menu; the workflow state renders as the
+document's status badge for everyone, locked or not. The server stays authoritative on
+transition permissions — the client shows the current state's transitions and surfaces a
+permission error if the user lacks the role.
 
 **W3 — Field editing (L, the core).** Edit mode on drafts (+ `allow_on_submit` fields on
 submitted docs); the field registry grows editable counterparts per fieldtype (TextField /
