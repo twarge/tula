@@ -35,6 +35,8 @@ public struct DocField: Sendable, Hashable, Identifiable {
     public var hidden: Bool { raw["hidden"]?.boolValue ?? false }
     public var bold: Bool { raw["bold"]?.boolValue ?? false }
     public var inListView: Bool { raw["in_list_view"]?.boolValue ?? false }
+    /// Desk shows these fields in its link-preview popover.
+    public var inPreview: Bool { raw["in_preview"]?.boolValue ?? false }
     /// Desk shows these fields as its sidebar "Filter By" quick filters.
     public var inStandardFilter: Bool { raw["in_standard_filter"]?.boolValue ?? false }
     /// Visibility rule evaluated against the document (`DependsOnEvaluator`):

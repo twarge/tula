@@ -14,19 +14,37 @@ struct FieldValueView: View {
     /// Links render as navigation; callers inside non-navigable contexts turn
     /// this off to get plain text.
     var linkEnabled = true
+    /// Sibling values of the row/document this value came from. Dynamic Links
+    /// need them: `options` names the sibling field holding the DocType
+    /// (GL's voucher_no → voucher_type).
+    var rowValues: [String: FrappeValue] = [:]
 
     var body: some View {
+        if let label = value?.nonEmptyString, label.isQuotedTotalLabel {
+            // Frappe report pseudo-rows ('Opening', 'Total', …) are labels,
+            // not documents — plain text even in Link columns.
+            Text(label.strippingTotalQuotes)
+        } else {
+            typedContent
+        }
+    }
+
+    @ViewBuilder
+    private var typedContent: some View {
         switch fieldtype {
         case .check:
             Image(systemName: value?.boolValue == true ? "checkmark.square.fill" : "square")
                 .foregroundStyle(value?.boolValue == true ? Color.accentColor : .secondary)
 
-        case .link where linkTarget != nil:
+        case .link where linkTarget != nil, .dynamicLink where linkTarget != nil:
+            let target = linkDocument!
             NavigationLink(value: linkTarget!) {
                 Text(value?.nonEmptyString ?? "")
                     .foregroundStyle(.tint)
             }
             .buttonStyle(.plain)
+            .modifier(
+                DocumentQuickViewModifier(doctype: target.doctype, name: target.name))
 
         case .select where isStatusField && value?.nonEmptyString != nil:
             StatusBadge(status: value!.nonEmptyString!)
@@ -80,11 +98,24 @@ struct FieldValueView: View {
             precision: precision)
     }
 
-    private var linkTarget: Route? {
-        guard linkEnabled, let doctype = options, let name = value?.nonEmptyString else {
+    private var linkDocument: (doctype: String, name: String)? {
+        guard linkEnabled, let name = value?.nonEmptyString else { return nil }
+        switch fieldtype {
+        case .link:
+            guard let doctype = options else { return nil }
+            return (doctype, name)
+        case .dynamicLink:
+            guard let reference = options,
+                let doctype = rowValues[reference]?.nonEmptyString
+            else { return nil }
+            return (doctype, name)
+        default:
             return nil
         }
-        return .document(doctype: doctype, name: name)
+    }
+
+    private var linkTarget: Route? {
+        linkDocument.map { .document(doctype: $0.doctype, name: $0.name) }
     }
 
     private var isStatusField: Bool {

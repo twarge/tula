@@ -25,6 +25,8 @@ public struct DemoDataSource: DataSource {
             return try ReportResult.decode(from: Data(DemoFixtures.profitAndLoss.utf8))
         case StandardReports.balanceSheet.name:
             return try ReportResult.decode(from: Data(DemoFixtures.balanceSheet.utf8))
+        case StandardReports.generalLedger.name:
+            return try ReportResult.decode(from: Data(DemoFixtures.generalLedger.utf8))
         default:
             throw ERPNextError(
                 message:

@@ -13,47 +13,47 @@ enum DemoFixtures {
           "message": {
             "columns": [
               {"fieldname": "account", "label": "Account", "fieldtype": "Data", "width": 300},
-              {"fieldname": "q1_2025", "label": "Jan – Mar 2025", "fieldtype": "Currency", "options": "currency", "width": 150},
-              {"fieldname": "q2_2025", "label": "Apr – Jun 2025", "fieldtype": "Currency", "options": "currency", "width": 150},
-              {"fieldname": "q3_2025", "label": "Jul – Sep 2025", "fieldtype": "Currency", "options": "currency", "width": 150},
-              {"fieldname": "q4_2025", "label": "Oct – Dec 2025", "fieldtype": "Currency", "options": "currency", "width": 150},
+              {"fieldname": "mar_2025", "label": "Jan 25-Mar 25", "fieldtype": "Currency", "options": "currency", "width": 150},
+              {"fieldname": "jun_2025", "label": "Apr 25-Jun 25", "fieldtype": "Currency", "options": "currency", "width": 150},
+              {"fieldname": "sep_2025", "label": "Jul 25-Sep 25", "fieldtype": "Currency", "options": "currency", "width": 150},
+              {"fieldname": "dec_2025", "label": "Oct 25-Dec 25", "fieldtype": "Currency", "options": "currency", "width": 150},
               {"fieldname": "total", "label": "Total", "fieldtype": "Currency", "options": "currency", "width": 150}
             ],
             "result": [
               {"account": "Income - WPL", "account_name": "Income", "indent": 0, "has_value": true, "currency": "USD",
-               "q1_2025": 208150.0, "q2_2025": 233010.0, "q3_2025": 231520.0, "q4_2025": 268790.0, "total": 941470.0},
+               "mar_2025": 208150.0, "jun_2025": 233010.0, "sep_2025": 231520.0, "dec_2025": 268790.0, "total": 941470.0},
               {"account": "Direct Income - WPL", "account_name": "Direct Income", "indent": 1, "has_value": true, "currency": "USD",
-               "q1_2025": 206950.0, "q2_2025": 232060.0, "q3_2025": 229920.0, "q4_2025": 266690.0, "total": 935620.0},
+               "mar_2025": 206950.0, "jun_2025": 232060.0, "sep_2025": 229920.0, "dec_2025": 266690.0, "total": 935620.0},
               {"account": "Sales - WPL", "account_name": "Sales", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 182450.0, "q2_2025": 205310.0, "q3_2025": 198720.0, "q4_2025": 236890.0, "total": 823370.0},
+               "mar_2025": 182450.0, "jun_2025": 205310.0, "sep_2025": 198720.0, "dec_2025": 236890.0, "total": 823370.0},
               {"account": "Service - WPL", "account_name": "Service", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 24500.0, "q2_2025": 26750.0, "q3_2025": 31200.0, "q4_2025": 29800.0, "total": 112250.0},
+               "mar_2025": 24500.0, "jun_2025": 26750.0, "sep_2025": 31200.0, "dec_2025": 29800.0, "total": 112250.0},
               {"account": "Indirect Income - WPL", "account_name": "Indirect Income", "indent": 1, "has_value": true, "currency": "USD",
-               "q1_2025": 1200.0, "q2_2025": 950.0, "q3_2025": 1600.0, "q4_2025": 2100.0, "total": 5850.0},
+               "mar_2025": 1200.0, "jun_2025": 950.0, "sep_2025": 1600.0, "dec_2025": 2100.0, "total": 5850.0},
               {"account": "'Total Income (Credit)'", "account_name": "'Total Income (Credit)'", "indent": 0, "has_value": true, "currency": "USD",
-               "q1_2025": 208150.0, "q2_2025": 233010.0, "q3_2025": 231520.0, "q4_2025": 268790.0, "total": 941470.0},
+               "mar_2025": 208150.0, "jun_2025": 233010.0, "sep_2025": 231520.0, "dec_2025": 268790.0, "total": 941470.0},
               {},
               {"account": "Expenses - WPL", "account_name": "Expenses", "indent": 0, "has_value": true, "currency": "USD",
-               "q1_2025": 161550.0, "q2_2025": 175330.0, "q3_2025": 171340.0, "q4_2025": 200210.0, "total": 708430.0},
+               "mar_2025": 161550.0, "jun_2025": 175330.0, "sep_2025": 171340.0, "dec_2025": 200210.0, "total": 708430.0},
               {"account": "Direct Expenses - WPL", "account_name": "Direct Expenses", "indent": 1, "has_value": true, "currency": "USD",
-               "q1_2025": 98400.0, "q2_2025": 111250.0, "q3_2025": 106800.0, "q4_2025": 128300.0, "total": 444750.0},
+               "mar_2025": 98400.0, "jun_2025": 111250.0, "sep_2025": 106800.0, "dec_2025": 128300.0, "total": 444750.0},
               {"account": "Cost of Goods Sold - WPL", "account_name": "Cost of Goods Sold", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 98400.0, "q2_2025": 111250.0, "q3_2025": 106800.0, "q4_2025": 128300.0, "total": 444750.0},
+               "mar_2025": 98400.0, "jun_2025": 111250.0, "sep_2025": 106800.0, "dec_2025": 128300.0, "total": 444750.0},
               {"account": "Indirect Expenses - WPL", "account_name": "Indirect Expenses", "indent": 1, "has_value": true, "currency": "USD",
-               "q1_2025": 63150.0, "q2_2025": 64080.0, "q3_2025": 64540.0, "q4_2025": 71910.0, "total": 263680.0},
+               "mar_2025": 63150.0, "jun_2025": 64080.0, "sep_2025": 64540.0, "dec_2025": 71910.0, "total": 263680.0},
               {"account": "Salaries and Wages - WPL", "account_name": "Salaries and Wages", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 45200.0, "q2_2025": 45200.0, "q3_2025": 47800.0, "q4_2025": 47800.0, "total": 186000.0},
+               "mar_2025": 45200.0, "jun_2025": 45200.0, "sep_2025": 47800.0, "dec_2025": 47800.0, "total": 186000.0},
               {"account": "Rent - WPL", "account_name": "Rent", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 9000.0, "q2_2025": 9000.0, "q3_2025": 9000.0, "q4_2025": 9000.0, "total": 36000.0},
+               "mar_2025": 9000.0, "jun_2025": 9000.0, "sep_2025": 9000.0, "dec_2025": 9000.0, "total": 36000.0},
               {"account": "Utilities - WPL", "account_name": "Utilities", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 2150.0, "q2_2025": 1980.0, "q3_2025": 2340.0, "q4_2025": 2510.0, "total": 8980.0},
+               "mar_2025": 2150.0, "jun_2025": 1980.0, "sep_2025": 2340.0, "dec_2025": 2510.0, "total": 8980.0},
               {"account": "Marketing - WPL", "account_name": "Marketing", "indent": 2, "has_value": true, "currency": "USD",
-               "q1_2025": 6800.0, "q2_2025": 7900.0, "q3_2025": 5400.0, "q4_2025": 12600.0, "total": 32700.0},
+               "mar_2025": 6800.0, "jun_2025": 7900.0, "sep_2025": 5400.0, "dec_2025": 12600.0, "total": 32700.0},
               {"account": "'Total Expense (Debit)'", "account_name": "'Total Expense (Debit)'", "indent": 0, "has_value": true, "currency": "USD",
-               "q1_2025": 161550.0, "q2_2025": 175330.0, "q3_2025": 171340.0, "q4_2025": 200210.0, "total": 708430.0},
+               "mar_2025": 161550.0, "jun_2025": 175330.0, "sep_2025": 171340.0, "dec_2025": 200210.0, "total": 708430.0},
               {},
               {"account": "'Profit for the year'", "account_name": "'Profit for the year'", "indent": 0, "has_value": true, "currency": "USD",
-               "q1_2025": 46600.0, "q2_2025": 57680.0, "q3_2025": 60180.0, "q4_2025": 68580.0, "total": 233040.0}
+               "mar_2025": 46600.0, "jun_2025": 57680.0, "sep_2025": 60180.0, "dec_2025": 68580.0, "total": 233040.0}
             ],
             "report_summary": [
               {"value": 941470.0, "label": "Total Income", "datatype": "Currency", "currency": "USD"},
@@ -63,7 +63,7 @@ enum DemoFixtures {
             "chart": {
               "type": "bar",
               "data": {
-                "labels": ["Q1 2025", "Q2 2025", "Q3 2025", "Q4 2025"],
+                "labels": ["Jan 25-Mar 25", "Apr 25-Jun 25", "Jul 25-Sep 25", "Oct 25-Dec 25"],
                 "datasets": [
                   {"name": "Income", "values": [208150.0, 233010.0, 231520.0, 268790.0]},
                   {"name": "Expense", "values": [161550.0, 175330.0, 171340.0, 200210.0]}
@@ -80,31 +80,68 @@ enum DemoFixtures {
           "message": {
             "columns": [
               {"fieldname": "account", "label": "Account", "fieldtype": "Data", "width": 300},
-              {"fieldname": "2025", "label": "2025", "fieldtype": "Currency", "options": "currency", "width": 170}
+              {"fieldname": "dec_2025", "label": "2025", "fieldtype": "Currency", "options": "currency", "width": 170}
             ],
             "result": [
-              {"account": "Application of Funds (Assets) - WPL", "account_name": "Application of Funds (Assets)", "indent": 0, "has_value": true, "currency": "USD", "2025": 512300.0},
-              {"account": "Current Assets - WPL", "account_name": "Current Assets", "indent": 1, "has_value": true, "currency": "USD", "2025": 342300.0},
-              {"account": "Bank Accounts - WPL", "account_name": "Bank Accounts", "indent": 2, "has_value": true, "currency": "USD", "2025": 120400.0},
-              {"account": "Cash In Hand - WPL", "account_name": "Cash In Hand", "indent": 2, "has_value": true, "currency": "USD", "2025": 5600.0},
-              {"account": "Accounts Receivable - WPL", "account_name": "Accounts Receivable", "indent": 2, "has_value": true, "currency": "USD", "2025": 96300.0},
-              {"account": "Stock In Hand - WPL", "account_name": "Stock In Hand", "indent": 2, "has_value": true, "currency": "USD", "2025": 120000.0},
-              {"account": "Fixed Assets - WPL", "account_name": "Fixed Assets", "indent": 1, "has_value": true, "currency": "USD", "2025": 170000.0},
-              {"account": "'Total Asset (Debit)'", "account_name": "'Total Asset (Debit)'", "indent": 0, "has_value": true, "currency": "USD", "2025": 512300.0},
+              {"account": "Application of Funds (Assets) - WPL", "account_name": "Application of Funds (Assets)", "indent": 0, "has_value": true, "currency": "USD", "dec_2025": 512300.0},
+              {"account": "Current Assets - WPL", "account_name": "Current Assets", "indent": 1, "has_value": true, "currency": "USD", "dec_2025": 342300.0},
+              {"account": "Bank Accounts - WPL", "account_name": "Bank Accounts", "indent": 2, "has_value": true, "currency": "USD", "dec_2025": 120400.0},
+              {"account": "Cash In Hand - WPL", "account_name": "Cash In Hand", "indent": 2, "has_value": true, "currency": "USD", "dec_2025": 5600.0},
+              {"account": "Accounts Receivable - WPL", "account_name": "Accounts Receivable", "indent": 2, "has_value": true, "currency": "USD", "dec_2025": 96300.0},
+              {"account": "Stock In Hand - WPL", "account_name": "Stock In Hand", "indent": 2, "has_value": true, "currency": "USD", "dec_2025": 120000.0},
+              {"account": "Fixed Assets - WPL", "account_name": "Fixed Assets", "indent": 1, "has_value": true, "currency": "USD", "dec_2025": 170000.0},
+              {"account": "'Total Asset (Debit)'", "account_name": "'Total Asset (Debit)'", "indent": 0, "has_value": true, "currency": "USD", "dec_2025": 512300.0},
               {},
-              {"account": "Source of Funds (Liabilities) - WPL", "account_name": "Source of Funds (Liabilities)", "indent": 0, "has_value": true, "currency": "USD", "2025": 279260.0},
-              {"account": "Current Liabilities - WPL", "account_name": "Current Liabilities", "indent": 1, "has_value": true, "currency": "USD", "2025": 142260.0},
-              {"account": "Accounts Payable - WPL", "account_name": "Accounts Payable", "indent": 2, "has_value": true, "currency": "USD", "2025": 98260.0},
-              {"account": "Duties and Taxes - WPL", "account_name": "Duties and Taxes", "indent": 2, "has_value": true, "currency": "USD", "2025": 44000.0},
-              {"account": "Capital Account - WPL", "account_name": "Capital Account", "indent": 1, "has_value": true, "currency": "USD", "2025": 137000.0},
-              {"account": "'Total Liability (Credit)'", "account_name": "'Total Liability (Credit)'", "indent": 0, "has_value": true, "currency": "USD", "2025": 279260.0},
+              {"account": "Source of Funds (Liabilities) - WPL", "account_name": "Source of Funds (Liabilities)", "indent": 0, "has_value": true, "currency": "USD", "dec_2025": 279260.0},
+              {"account": "Current Liabilities - WPL", "account_name": "Current Liabilities", "indent": 1, "has_value": true, "currency": "USD", "dec_2025": 142260.0},
+              {"account": "Accounts Payable - WPL", "account_name": "Accounts Payable", "indent": 2, "has_value": true, "currency": "USD", "dec_2025": 98260.0},
+              {"account": "Duties and Taxes - WPL", "account_name": "Duties and Taxes", "indent": 2, "has_value": true, "currency": "USD", "dec_2025": 44000.0},
+              {"account": "Capital Account - WPL", "account_name": "Capital Account", "indent": 1, "has_value": true, "currency": "USD", "dec_2025": 137000.0},
+              {"account": "'Total Liability (Credit)'", "account_name": "'Total Liability (Credit)'", "indent": 0, "has_value": true, "currency": "USD", "dec_2025": 279260.0},
               {},
-              {"account": "'Provisional Profit / Loss (Credit)'", "account_name": "'Provisional Profit / Loss (Credit)'", "indent": 0, "has_value": true, "currency": "USD", "2025": 233040.0}
+              {"account": "'Provisional Profit / Loss (Credit)'", "account_name": "'Provisional Profit / Loss (Credit)'", "indent": 0, "has_value": true, "currency": "USD", "dec_2025": 233040.0}
             ],
             "report_summary": [
               {"value": 512300.0, "label": "Total Asset", "datatype": "Currency", "currency": "USD"},
               {"value": 279260.0, "label": "Total Liability", "datatype": "Currency", "currency": "USD"},
               {"value": 233040.0, "label": "Provisional Profit / Loss", "datatype": "Currency", "currency": "USD", "indicator": "Green"}
+            ]
+          }
+        }
+        """#
+
+    /// "General Ledger" in the server's real shape: Float amount columns with
+    /// the currency in the label, quoted Opening/Total/Closing rows. The
+    /// entries sum to the P&L fixture's Marketing Oct–Dec cell (12,600), so
+    /// the demo per-period drill-down reconciles with the cell it came from.
+    static let generalLedger = #"""
+        {
+          "message": {
+            "columns": [
+              {"fieldname": "posting_date", "label": "Posting Date", "fieldtype": "Date", "width": 100},
+              {"fieldname": "account", "label": "Account", "fieldtype": "Link", "options": "Account", "width": 180},
+              {"fieldname": "debit", "label": "Debit (USD)", "fieldtype": "Float", "width": 130},
+              {"fieldname": "credit", "label": "Credit (USD)", "fieldtype": "Float", "width": 130},
+              {"fieldname": "balance", "label": "Balance (USD)", "fieldtype": "Float", "width": 130},
+              {"fieldname": "voucher_type", "label": "Voucher Type", "fieldtype": "Data", "width": 120},
+              {"fieldname": "voucher_no", "label": "Voucher No", "fieldtype": "Dynamic Link", "options": "voucher_type", "width": 180},
+              {"fieldname": "against", "label": "Against Account", "fieldtype": "Data", "width": 200},
+              {"fieldname": "remarks", "label": "Remarks", "fieldtype": "Data", "width": 300}
+            ],
+            "result": [
+              {"account": "'Opening'", "debit": 0.0, "credit": 0.0, "balance": 0.0},
+              {"posting_date": "2025-10-06", "account": "Marketing - WPL", "debit": 3200.0, "credit": 0.0, "balance": 3200.0,
+               "voucher_type": "Purchase Invoice", "voucher_no": "ACC-PINV-2025-00061", "against": "Accounts Payable - WPL", "remarks": "Trade show booth"},
+              {"posting_date": "2025-10-24", "account": "Marketing - WPL", "debit": 1400.0, "credit": 0.0, "balance": 4600.0,
+               "voucher_type": "Journal Entry", "voucher_no": "ACC-JV-2025-00018", "against": "Bank Accounts - WPL", "remarks": "Sponsored newsletter"},
+              {"posting_date": "2025-11-12", "account": "Marketing - WPL", "debit": 5250.0, "credit": 0.0, "balance": 9850.0,
+               "voucher_type": "Purchase Invoice", "voucher_no": "ACC-PINV-2025-00067", "against": "Accounts Payable - WPL", "remarks": "Q4 ad campaign"},
+              {"posting_date": "2025-12-02", "account": "Marketing - WPL", "debit": 1950.0, "credit": 0.0, "balance": 11800.0,
+               "voucher_type": "Journal Entry", "voucher_no": "ACC-JV-2025-00021", "against": "Bank Accounts - WPL", "remarks": "Print collateral"},
+              {"posting_date": "2025-12-18", "account": "Marketing - WPL", "debit": 800.0, "credit": 0.0, "balance": 12600.0,
+               "voucher_type": "Purchase Invoice", "voucher_no": "ACC-PINV-2025-00072", "against": "Accounts Payable - WPL", "remarks": "Holiday promo assets"},
+              {"account": "'Total'", "debit": 12600.0, "credit": 0.0, "balance": 12600.0},
+              {"account": "'Closing (Opening + Total)'", "debit": 12600.0, "credit": 0.0, "balance": 12600.0}
             ]
           }
         }

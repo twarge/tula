@@ -563,7 +563,8 @@ private struct FieldRow: View {
                             options: field.fieldtype == .currency ? field.options : nil,
                             rowValues: effectiveRaw,
                             fallback: model.fallbackCurrencyCode),
-                        precision: field.precision)
+                        precision: field.precision,
+                        rowValues: effectiveRaw)
                         .fontWeight(field.bold ? .semibold : .regular)
                 } else {
                     // Desk shows empty fields as blank inputs, not gaps —

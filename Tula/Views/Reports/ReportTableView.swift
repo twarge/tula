@@ -10,7 +10,10 @@ import SwiftUI
 struct ReportResultView: View {
     let result: ReportResult
     let fallbackCurrency: String?
-    var drillRoute: ((ReportRow) -> Route?)? = nil
+    /// Row + column → destination. A nil column means the row's label cell
+    /// (whole-span drill); an amount cell passes its own column so the
+    /// destination can narrow to that period.
+    var drillRoute: ((ReportRow, ReportColumn?) -> Route?)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,8 +34,9 @@ struct ReportResultView: View {
 struct ReportTableView: View {
     let result: ReportResult
     let fallbackCurrency: String?
-    /// When provided, first-column cells navigate (P&L account → GL).
-    var drillRoute: ((ReportRow) -> Route?)? = nil
+    /// When provided, first-column cells navigate (P&L account → GL) and
+    /// amount cells navigate scoped to their own column's period.
+    var drillRoute: ((ReportRow, ReportColumn?) -> Route?)? = nil
 
     private var columns: [ReportColumn] { result.visibleColumns }
 
@@ -127,7 +131,7 @@ struct ReportTableView: View {
     @ViewBuilder
     private func cell(row: ReportRow, column: ReportColumn, isFirst: Bool) -> some View {
         if isFirst {
-            if let drillRoute, let route = drillRoute(row) {
+            if let drillRoute, let route = drillRoute(row, nil) {
                 NavigationLink(value: route) {
                     Text(firstCellText(row).text)
                         .lineLimit(1)
@@ -140,16 +144,27 @@ struct ReportTableView: View {
                     .lineLimit(1)
             }
         } else {
-            FieldValueView(
+            let isLinkColumn = column.fieldtype == .link || column.fieldtype == .dynamicLink
+            let valueView = FieldValueView(
                 fieldname: column.fieldname,
                 fieldtype: column.fieldtype,
-                options: column.fieldtype == .link ? column.options : nil,
+                options: isLinkColumn ? column.options : nil,
                 value: row[column],
                 currencyCode: ValueFormatting.currencyCode(
                     options: column.options, rowValues: row.values, fallback: fallbackCurrency),
-                precision: column.precision
+                precision: column.precision,
+                rowValues: row.values
             )
             .lineLimit(1)
+            if let drillRoute, row[column] != nil, let route = drillRoute(row, column) {
+                NavigationLink(value: route) {
+                    valueView.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open this period in General Ledger")
+            } else {
+                valueView
+            }
         }
     }
 

@@ -72,8 +72,8 @@ degrades gracefully instead of breaking on server customization.
 | `Duration` | `Text` via `Duration.UnitsFormatStyle` |
 | `Check` | `Image(systemName: "checkmark")` / empty (never a `Toggle` — read-only) |
 | `Select` | `Text`; status-like fields get a tinted capsule badge |
-| `Link` | **`NavigationLink`** routing to `.document(doctype: options, name: value)` — this single rule makes the whole data graph navigable |
-| `Dynamic Link` | Same, doctype resolved from the sibling field named in `options` |
+| `Link` | **`NavigationLink`** routing to `.document(doctype: options, name: value)` — this single rule makes the whole data graph navigable. Hovering (macOS) or long-pressing (iOS) any document link shows a quick-view popover (`DocumentQuickView`): title, status, `in_preview` fields, and the first child table's line items — the voucher's core costs without leaving the report |
+| `Dynamic Link` | Same, doctype resolved from the sibling field named in `options` (GL's voucher_no → voucher_type), so report voucher columns navigate too |
 | `Table`, `Table MultiSelect` | Nested child-table section rendered by the same list machinery, using the child DocType's meta |
 | `Text`, `Long Text`, `Code`, `JSON`, `Markdown Editor` | Scrollable `Text` (monospaced for code/JSON) |
 | `Text Editor`, `HTML Editor`, `HTML` | Own lightweight parsing — **not** `NSAttributedString(html:)`, which spins up WebKit. Fields carrying a server-rendered `<table>` (tax breakup et al) are parsed (`HTMLTable`) and rendered as a native grid; other content strips to text |
@@ -346,6 +346,14 @@ missing is navigation and filters:
    fall back to the native financial-statement sets. (M)
 3. **Drill-down** — report → report routes with carried filters (P&L/BS account row → GL
    for that account and period), Desk's core accountant workflow. (S–M)
+   Extended Aug 2026 beyond Desk parity: amount cells drill per period column
+   (`FinancialPeriods` recomputes the server's `get_period_list` so a column fieldname like
+   `mar_2025` maps back to its date range), the statement's project/cost center/finance
+   book/currency scoping travels along, and the routed filters *seed* the General Ledger's
+   own editable filter state (`GeneralLedgerFilterState`, Desk `route_options` semantics)
+   instead of being pinned invisibly — the GL bar shows from/to date pickers and the
+   account, so a drilled period can be widened in place. The GL request sends both
+   `group_by` (≤ v15) and `categorize_by` (v16 rename) for version-independent grouping.
 4. **Report charts** — `query_report.run` already returns `chart` config; render with
    Swift Charts above the grid. (M)
 

@@ -27,7 +27,7 @@ final class ReportDecodingTests: XCTestCase {
 
         // Quarter totals sum to the year total on the profit row.
         let profit = result.rows[17]
-        let quarters = ["q1_2025", "q2_2025", "q3_2025", "q4_2025"]
+        let quarters = ["mar_2025", "jun_2025", "sep_2025", "dec_2025"]
             .compactMap { profit.values[$0]?.doubleValue }
         XCTAssertEqual(quarters.reduce(0, +), profit.values["total"]?.doubleValue)
     }
@@ -616,5 +616,109 @@ final class DemoDataSourceTests: XCTestCase {
         let meta = try await demo.metaBundle(for: "Sales Invoice").metas[0]
         let itemsField = try XCTUnwrap(meta.field(named: "items"))
         XCTAssertEqual(invoice.childRows(for: itemsField).count, 3)
+    }
+}
+
+final class FinancialPeriodsTests: XCTestCase {
+    func testQuarterlyCalendarYear() {
+        let periods = FinancialPeriods.periods(
+            spanStart: "2025-01-01", spanEnd: "2025-12-31",
+            periodicity: .quarterly, alignsFirstPeriodToMonth: false)
+        XCTAssertEqual(periods.map(\.key), ["mar_2025", "jun_2025", "sep_2025", "dec_2025"])
+        XCTAssertEqual(periods.first?.fromDate, "2025-01-01")
+        XCTAssertEqual(periods.first?.toDate, "2025-03-31")
+        XCTAssertEqual(periods.last?.fromDate, "2025-10-01")
+        XCTAssertEqual(periods.last?.toDate, "2025-12-31")
+    }
+
+    func testMonthlyOffsetFiscalYear() {
+        // An Apr–Mar fiscal year: keys cross the calendar-year boundary.
+        let periods = FinancialPeriods.periods(
+            spanStart: "2025-04-01", spanEnd: "2026-03-31",
+            periodicity: .monthly, alignsFirstPeriodToMonth: false)
+        XCTAssertEqual(periods.count, 12)
+        XCTAssertEqual(periods.first?.key, "apr_2025")
+        XCTAssertEqual(periods.last?.key, "mar_2026")
+        XCTAssertEqual(periods[9].fromDate, "2026-01-01")
+        XCTAssertEqual(periods[9].toDate, "2026-01-31")
+    }
+
+    func testDateRangeFirstPeriodEndsAtMonthBoundary() {
+        // Server: the first Date Range period runs from the raw start date to
+        // add_months(get_first_day(start), n) - 1 day.
+        let monthly = FinancialPeriods.periods(
+            spanStart: "2025-01-15", spanEnd: "2025-04-30",
+            periodicity: .monthly, alignsFirstPeriodToMonth: true)
+        XCTAssertEqual(monthly.map(\.key), ["jan_2025", "feb_2025", "mar_2025", "apr_2025"])
+        XCTAssertEqual(monthly.first?.fromDate, "2025-01-15")
+        XCTAssertEqual(monthly.first?.toDate, "2025-01-31")
+        XCTAssertEqual(monthly[1].fromDate, "2025-02-01")
+
+        let quarterly = FinancialPeriods.periods(
+            spanStart: "2025-01-15", spanEnd: "2025-04-30",
+            periodicity: .quarterly, alignsFirstPeriodToMonth: true)
+        XCTAssertEqual(quarterly.map(\.key), ["mar_2025", "apr_2025"])
+        XCTAssertEqual(quarterly[1].fromDate, "2025-04-01")
+        XCTAssertEqual(quarterly[1].toDate, "2025-04-30")
+    }
+
+    func testFinalPeriodClampsToSpanEnd() {
+        // Yearly periodicity over a 15-month span: the second "year" is the
+        // 3-month remainder, exactly as the server clamps it.
+        let periods = FinancialPeriods.periods(
+            spanStart: "2025-01-01", spanEnd: "2026-03-31",
+            periodicity: .yearly, alignsFirstPeriodToMonth: false)
+        XCTAssertEqual(periods.map(\.key), ["dec_2025", "mar_2026"])
+        XCTAssertEqual(periods.last?.fromDate, "2026-01-01")
+        XCTAssertEqual(periods.last?.toDate, "2026-03-31")
+    }
+
+    func testDegenerateSpansAreEmpty() {
+        XCTAssertTrue(
+            FinancialPeriods.periods(
+                spanStart: "2025-06-30", spanEnd: "2025-01-01",
+                periodicity: .monthly, alignsFirstPeriodToMonth: false
+            ).isEmpty)
+        XCTAssertTrue(
+            FinancialPeriods.periods(
+                spanStart: "garbage", spanEnd: "2025-01-01",
+                periodicity: .monthly, alignsFirstPeriodToMonth: false
+            ).isEmpty)
+    }
+}
+
+final class GeneralLedgerFilterStateTests: XCTestCase {
+    func testRouteOptionsRoundTrip() {
+        let state = GeneralLedgerFilterState(
+            fromDate: "2025-10-01", toDate: "2025-12-31", account: "Marketing - WPL",
+            project: "Turbine Retrofit", costCenter: "Main - WPL",
+            financeBook: "Consolidated", presentationCurrency: "EUR",
+            includeDefaultBookEntries: false)
+        XCTAssertEqual(GeneralLedgerFilterState(routeOptions: state.routeOptions), state)
+        XCTAssertEqual(GeneralLedgerFilterState(routeOptions: [:]), GeneralLedgerFilterState())
+    }
+
+    func testApplySendsDeskWireShapes() {
+        var filters: [String: FrappeValue] = [
+            "company": .string("Wind Power LLC"),
+            "from_date": .string("2025-01-01"),
+            "to_date": .string("2025-12-31"),
+            "group_by": .string("Group by Voucher (Consolidated)"),
+        ]
+        var state = GeneralLedgerFilterState(account: "Marketing - WPL")
+        state.fromDate = "2025-10-01"
+        state.apply(to: &filters)
+
+        // Explicit dates override the fiscal-year fallback; unset ones keep it.
+        XCTAssertEqual(filters["from_date"], .string("2025-10-01"))
+        XCTAssertEqual(filters["to_date"], .string("2025-12-31"))
+        // Scoping filters travel as one-element MultiSelectList arrays.
+        XCTAssertEqual(filters["account"], .array([.string("Marketing - WPL")]))
+        XCTAssertNil(filters["project"])
+        // Both grouping spellings: group_by (≤ v15) and categorize_by (v16).
+        XCTAssertEqual(filters["group_by"], .string("Group by Voucher (Consolidated)"))
+        XCTAssertEqual(
+            filters["categorize_by"], .string("Categorize by Voucher (Consolidated)"))
+        XCTAssertEqual(filters["include_default_book_entries"], .int(1))
     }
 }
