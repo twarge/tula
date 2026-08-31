@@ -181,8 +181,13 @@ struct DocumentPeriphery: Sendable {
                         doctype: linked, count: 0,
                         group: group.label.isEmpty ? nil : group.label)
                     if let path = spec.internalLinks[linked] {
-                        connection.internalNames = internalLinkNames(
-                            path: path, document: document)
+                        // The server resolves internal-link names too
+                        // (multi-path links); the document is the fallback.
+                        let serverNames = batched?[linked]?.names ?? []
+                        connection.internalNames =
+                            serverNames.isEmpty
+                            ? internalLinkNames(path: path, document: document)
+                            : serverNames
                         connection.count = connection.internalNames.count
                     } else if let filters = spec.filters(linking: linked, to: name) {
                         connection.filters = filters

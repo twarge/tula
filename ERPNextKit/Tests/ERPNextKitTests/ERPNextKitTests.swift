@@ -478,6 +478,36 @@ final class SortCountAndSnapshotTests: XCTestCase {
 }
 
 final class WriteClientTests: XCTestCase {
+    func testOpenCountParsingBothDialects() throws {
+        let modern = """
+            {"message": {"count": {
+              "external_links_found": [
+                {"doctype": "Purchase Order", "count": 37, "open_count": 13},
+                {"doctype": "Supplier Quotation", "count": 28, "open_count": 0},
+                {"doctype": "Stock Entry", "count": "?", "open_count": 0}
+              ],
+              "internal_links_found": [
+                {"doctype": "Sales Order", "open_count": 0, "count": 2,
+                 "names": ["SO-1", "SO-2"]}
+              ]}}}
+            """
+        let counts = try XCTUnwrap(LiveDataSource.parseOpenCounts(Data(modern.utf8)))
+        XCTAssertEqual(counts["Purchase Order"], LinkCount(total: 37, open: 13))
+        XCTAssertEqual(counts["Supplier Quotation"], LinkCount(total: 28, open: 0))
+        // "?" (statement timeout) parses as no total rather than zero.
+        XCTAssertEqual(counts["Stock Entry"], LinkCount(total: nil, open: 0))
+        XCTAssertEqual(
+            counts["Sales Order"],
+            LinkCount(total: 2, open: 0, names: ["SO-1", "SO-2"]))
+
+        let legacy = """
+            {"message": {"count": [
+              {"name": "Payment Entry", "count": 2, "open_count": 1}]}}
+            """
+        let legacyCounts = try XCTUnwrap(LiveDataSource.parseOpenCounts(Data(legacy.utf8)))
+        XCTAssertEqual(legacyCounts["Payment Entry"], LinkCount(total: 2, open: 1))
+    }
+
     func testDashboardSpecParsing() throws {
         let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))
         let spec = try XCTUnwrap(bundle.metas.first?.dashboard)

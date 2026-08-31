@@ -75,14 +75,17 @@ public struct DashboardChartData: Sendable, Hashable, Identifiable {
 }
 
 /// Counts for one linked DocType on a form dashboard: the total number of
-/// linked documents, and how many are "open" (Desk's orange badge).
+/// linked documents, and how many are "open" (Desk's orange badge). For
+/// internal links the server also resolves the referenced names.
 public struct LinkCount: Sendable, Hashable {
     public var total: Int?
     public var open: Int?
+    public var names: [String]?
 
-    public init(total: Int? = nil, open: Int? = nil) {
+    public init(total: Int? = nil, open: Int? = nil, names: [String]? = nil) {
         self.total = total
         self.open = open
+        self.names = names
     }
 }
 
@@ -409,17 +412,44 @@ public struct LiveDataSource: DataSource {
     public func openCounts(doctype: String, name: String) async throws -> [String: LinkCount]? {
         let data = try await client.data(
             for: .method(.openCount, parameters: ["doctype": doctype, "name": name]))
-        guard let root = try FrappeValue.decode(from: data).objectValue,
-            let message = root["message"]?.objectValue,
-            let entries = message["count"]?.arrayValue
+        return Self.parseOpenCounts(data)
+    }
+
+    /// `get_open_count` has two dialects: v13 returns `count` as a flat array
+    /// of `{name, open_count, count}`; v14+ returns an object with
+    /// `external_links_found` (`{doctype, count, open_count}` — `count` is
+    /// the string "?" on a statement timeout) and `internal_links_found`
+    /// (`{doctype, count, names}`).
+    static func parseOpenCounts(_ data: Data) -> [String: LinkCount]? {
+        guard let root = try? FrappeValue.decode(from: data).objectValue,
+            let count = root["message"]?.objectValue?["count"]
         else { return nil }
         var counts: [String: LinkCount] = [:]
-        for entry in entries {
-            guard let dict = entry.objectValue,
-                let doctype = dict["name"]?.nonEmptyString
-            else { continue }
-            counts[doctype] = LinkCount(
-                total: dict["count"]?.intValue, open: dict["open_count"]?.intValue)
+        if let entries = count.arrayValue {
+            for entry in entries {
+                guard let dict = entry.objectValue,
+                    let doctype = dict["name"]?.nonEmptyString ?? dict["doctype"]?.nonEmptyString
+                else { continue }
+                counts[doctype] = LinkCount(
+                    total: dict["count"]?.intValue, open: dict["open_count"]?.intValue)
+            }
+        } else if let object = count.objectValue {
+            for entry in object["external_links_found"]?.arrayValue ?? [] {
+                guard let dict = entry.objectValue,
+                    let doctype = dict["doctype"]?.nonEmptyString
+                else { continue }
+                counts[doctype] = LinkCount(
+                    total: dict["count"]?.intValue, open: dict["open_count"]?.intValue)
+            }
+            for entry in object["internal_links_found"]?.arrayValue ?? [] {
+                guard let dict = entry.objectValue,
+                    let doctype = dict["doctype"]?.nonEmptyString
+                else { continue }
+                counts[doctype] = LinkCount(
+                    total: dict["count"]?.intValue,
+                    open: dict["open_count"]?.intValue,
+                    names: dict["names"]?.arrayValue?.compactMap(\.nonEmptyString))
+            }
         }
         return counts.isEmpty ? nil : counts
     }
