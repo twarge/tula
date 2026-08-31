@@ -12,6 +12,9 @@ struct DocumentScreen: View {
     @State private var state: LoadState<Loaded> = .loading
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    /// Non-nil while a W3 edit is in progress; auto-refresh pauses so the
+    /// draft's `modified` token (the optimistic lock) stays coherent.
+    @State private var editSession: EditSession?
 
     struct Loaded {
         var meta: DocTypeMeta
@@ -41,7 +44,22 @@ struct DocumentScreen: View {
                             doctype: doctype, name: name, webBase: model.webBaseURL),
                         doctype: doctype,
                         documentRaw: loaded.document.raw,
+                        isEditing: editSession != nil,
+                        onEdit: EditSession.isEditable(
+                            meta: loaded.meta,
+                            docstatus: loaded.periphery.docstatus ?? 0)
+                            ? { startEditing(loaded) } : nil,
                         onMutate: { refreshToken += 1 })
+                    if let session = editSession {
+                        EditingBar(
+                            session: session,
+                            onSave: { save(session) },
+                            onDiscard: { editSession = nil },
+                            onReload: {
+                                editSession = nil
+                                refreshToken += 1
+                            })
+                    }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             DocumentFormView(
@@ -61,6 +79,7 @@ struct DocumentScreen: View {
                     }
                     .refreshable { await load() }
                 }
+                .environment(\.editSession, editSession)
             }
         }
         .navigationTitle(title)
@@ -70,7 +89,9 @@ struct DocumentScreen: View {
             OpenInDeskToolbar(route: .document(doctype: doctype, name: name))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
-        .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
+        .autoRefresh(signalDoctype: doctype) {
+            if editSession == nil { refreshToken += 1 }
+        }
         .task(id: "\(model.sourceGeneration)-\(doctype)-\(name)-\(refreshToken)") {
             if case .loading = state,
                 let cached: (value: Loaded, savedAt: Date) = model.cache.screen(cacheKey) {
@@ -85,6 +106,46 @@ struct DocumentScreen: View {
         "doc|\(model.sourceGeneration)|\(doctype)|\(name)"
     }
 
+    private func startEditing(_ loaded: Loaded) {
+        // The TULA_EDIT_PREVIEW hook treats the document as a draft so every
+        // editor is visible; purely local UI — saving still needs the gate.
+        let preview = ProcessInfo.processInfo.environment["TULA_EDIT_PREVIEW"] == "1"
+        let session = EditSession(document: loaded.document, docstatus: preview ? 0 : nil)
+        if let writeSession = model.writeSession {
+            let doctype = doctype
+            let name = name
+            session.uploadFile = { fileName, data in
+                try await writeSession.uploadForField(
+                    fileName: fileName, data: data, doctype: doctype, name: name)
+            }
+        }
+        editSession = session
+    }
+
+    private func save(_ session: EditSession) {
+        guard let writeSession = model.writeSession else {
+            session.error = "Writes are locked — open the lock in the toolbar first."
+            return
+        }
+        session.isSaving = true
+        session.error = nil
+        Task {
+            defer { session.isSaving = false }
+            do {
+                var draft = session.draft
+                draft["doctype"] = .string(doctype)
+                try await writeSession.save(
+                    documentRaw: draft, submitted: session.docstatus == 1)
+                editSession = nil
+                refreshToken += 1
+            } catch let error as ERPNextError where error.isTimestampMismatch {
+                session.conflict = true
+            } catch {
+                session.error = error.localizedDescription
+            }
+        }
+    }
+
     private var title: String {
         if case .loaded(let loaded) = state {
             return loaded.document.title(using: loaded.meta)
@@ -93,6 +154,9 @@ struct DocumentScreen: View {
     }
 
     private func load() async {
+        // An edit in progress pins the screen: refreshing would advance the
+        // cached modified token underneath the draft.
+        guard editSession == nil else { return }
         if case .loaded = state {
             // Silent refresh: keep content on screen.
         } else {
@@ -123,6 +187,12 @@ struct DocumentScreen: View {
             state = .loaded(loaded)
             lastUpdated = Date()
             model.cache.setScreen(cacheKey, loaded)
+            // Verification hook: TULA_EDIT_PREVIEW=1 opens the edit UI
+            // without a write session (Save stays locked).
+            if ProcessInfo.processInfo.environment["TULA_EDIT_PREVIEW"] == "1",
+                editSession == nil {
+                startEditing(loaded)
+            }
         } catch {
             // Keep cached content when a refresh fails; only surface errors
             // when the screen is empty.
@@ -130,6 +200,61 @@ struct DocumentScreen: View {
                 state = .failed(error.localizedDescription)
             }
         }
+    }
+}
+
+/// The strip shown while editing: save/discard, inline errors, and the
+/// conflict banner for the optimistic-lock case (draft lost in v1, per the
+/// write map).
+private struct EditingBar: View {
+    let session: EditSession
+    let onSave: () -> Void
+    let onDiscard: () -> Void
+    let onReload: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if session.conflict {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("This document changed on the server while you were editing. Reload to see the latest version — this draft can't be saved.")
+                        .font(.callout)
+                    Spacer()
+                    Button("Reload", action: onReload)
+                        .buttonStyle(.borderedProminent)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "pencil.circle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Editing")
+                        .font(.callout.weight(.semibold))
+                    if let error = session.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                    Button("Discard", action: onDiscard)
+                        .disabled(session.isSaving)
+                    Button(action: onSave) {
+                        if session.isSaving {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Save")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(session.isSaving)
+                    .keyboardShortcut("s", modifiers: .command)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.orange.opacity(0.08))
     }
 }
 
@@ -165,8 +290,12 @@ struct DocumentFormView<DashboardContent: View>: View {
         self.evaluator = DependsOnEvaluator(document: document)
     }
 
+    @Environment(\.editSession) private var editSession
+
     var body: some View {
-        // Desk evaluates depends_on on tabs and sections too.
+        // Desk evaluates depends_on on tabs and sections too. While editing,
+        // the evaluator follows the draft so conditional layout reacts live.
+        let evaluator = editSession?.evaluator ?? self.evaluator
         let visibleTabs = layout.tabs.filter { evaluator.isVisible($0.breakField?.dependsOn) }
 
         VStack(alignment: .leading, spacing: 16) {
@@ -191,7 +320,7 @@ struct DocumentFormView<DashboardContent: View>: View {
             } else {
                 let tab = visibleTabs.first { $0.id == selectedTab } ?? visibleTabs.first
                 if let tab {
-                    ForEach(cards(for: tab)) { card in
+                    ForEach(cards(for: tab, evaluator: evaluator)) { card in
                         FormCardView(
                             card: card, childMetas: childMetas, document: document,
                             gridColumns: gridColumns)
@@ -206,11 +335,11 @@ struct DocumentFormView<DashboardContent: View>: View {
     /// Group sections into cards accordingly, so e.g. a taxes grid and its
     /// totals stay inside the "Taxes and Charges" card instead of splitting
     /// into separate boxes.
-    private func cards(for tab: FormLayout.Tab) -> [FormCard] {
+    private func cards(for tab: FormLayout.Tab, evaluator: DependsOnEvaluator) -> [FormCard] {
         var cards: [FormCard] = []
         for section in tab.sections {
             guard evaluator.isVisible(section.breakField?.dependsOn),
-                let prepared = prepare(section)
+                let prepared = prepare(section, evaluator: evaluator)
             else { continue }
             if prepared.label != nil || cards.isEmpty {
                 cards.append(FormCard(label: prepared.label, sections: [prepared]))
@@ -223,9 +352,11 @@ struct DocumentFormView<DashboardContent: View>: View {
 
     /// Applies field-level visibility once, so cards with nothing to show
     /// are dropped entirely.
-    private func prepare(_ section: FormLayout.Section) -> PreparedSection? {
+    private func prepare(
+        _ section: FormLayout.Section, evaluator: DependsOnEvaluator
+    ) -> PreparedSection? {
         let columns = section.columns
-            .map { $0.filter(isFieldVisible) }
+            .map { $0.filter { isFieldVisible($0, evaluator: evaluator) } }
             .filter { !$0.isEmpty }
         let tables = section.tables.filter { evaluator.isVisible($0.dependsOn) }
         guard !columns.isEmpty || !tables.isEmpty else { return nil }
@@ -233,7 +364,7 @@ struct DocumentFormView<DashboardContent: View>: View {
             id: section.id, label: section.label, columns: columns, tables: tables)
     }
 
-    private func isFieldVisible(_ field: DocField) -> Bool {
+    private func isFieldVisible(_ field: DocField, evaluator: DependsOnEvaluator) -> Bool {
         evaluator.isVisible(field.dependsOn) && !isRedundantBaseTwin(field)
     }
 
@@ -244,7 +375,8 @@ struct DocumentFormView<DashboardContent: View>: View {
         guard field.fieldname.hasPrefix("base_") else { return false }
         let twin = String(field.fieldname.dropFirst("base_".count))
         guard meta.field(named: twin) != nil else { return false }
-        return (document["conversion_rate"]?.doubleValue ?? 1) == 1
+        let raw = editSession?.draft ?? document.raw
+        return (raw["conversion_rate"]?.doubleValue ?? 1) == 1
     }
 }
 
@@ -298,6 +430,8 @@ private struct FormSectionContent: View {
     let document: Document
     let gridColumns: [String: [GridColumn]]
 
+    @Environment(\.editSession) private var editSession
+
     #if !os(macOS)
         @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
@@ -349,13 +483,19 @@ private struct FormSectionContent: View {
 
     @ViewBuilder
     private func childTable(for tableField: DocField) -> some View {
-        let rows = document.childRows(for: tableField)
+        let rows = editSession.map { session in
+            (session.draft[tableField.fieldname]?.arrayValue ?? [])
+                .compactMap { $0.objectValue.map(Document.init(raw:)) }
+        } ?? document.childRows(for: tableField)
         if let childDoctype = tableField.options,
-            let childMeta = childMetas[childDoctype], !rows.isEmpty {
+            let childMeta = childMetas[childDoctype],
+            !rows.isEmpty || editSession != nil {
             ChildTableView(
                 title: tableField.label == cardLabel ? nil : tableField.label,
-                meta: childMeta, rows: rows, parentValues: document.raw,
-                serverColumns: gridColumns[childDoctype])
+                meta: childMeta, rows: rows,
+                parentValues: editSession?.draft ?? document.raw,
+                serverColumns: gridColumns[childDoctype],
+                editFieldname: editSession == nil ? nil : tableField.fieldname)
         }
     }
 }
@@ -369,14 +509,23 @@ private struct FieldRow: View {
     let document: Document
 
     @Environment(AppModel.self) private var model
+    @Environment(\.editSession) private var editSession
+
+    /// Draft values win while editing so even read-only fields stay
+    /// consistent with the edit in progress.
+    private var effectiveRaw: [String: FrappeValue] {
+        editSession?.draft ?? document.raw
+    }
 
     var body: some View {
-        if field.fieldtype == .check {
+        if let session = editSession, session.isEditable(field) {
+            editorRow(session)
+        } else if field.fieldtype == .check {
             HStack(spacing: 6) {
                 FieldValueView(
                     fieldname: field.fieldname,
                     fieldtype: .check,
-                    value: document.raw[field.fieldname] ?? .int(0))
+                    value: effectiveRaw[field.fieldname] ?? .int(0))
                 Text(field.label)
             }
         } else if field.isScanBarcodeField {
@@ -403,7 +552,7 @@ private struct FieldRow: View {
                 Text(field.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if let value = document[field.fieldname] {
+                if let value = effectiveRaw[field.fieldname], !value.isNull {
                     FieldValueView(
                         fieldname: field.fieldname,
                         fieldtype: field.fieldtype,
@@ -411,7 +560,7 @@ private struct FieldRow: View {
                         value: value,
                         currencyCode: ValueFormatting.currencyCode(
                             options: field.fieldtype == .currency ? field.options : nil,
-                            rowValues: document.raw,
+                            rowValues: effectiveRaw,
                             fallback: model.fallbackCurrencyCode),
                         precision: field.precision)
                         .fontWeight(field.bold ? .semibold : .regular)
@@ -420,6 +569,29 @@ private struct FieldRow: View {
                     // keep the field visible and reserve its value line.
                     Text(verbatim: " ")
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func editorRow(_ session: EditSession) -> some View {
+        if field.fieldtype == .check {
+            // The Toggle carries its own label, matching the ☑-before-label
+            // layout of the display path.
+            EditableFieldView(field: field, session: session)
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 2) {
+                    Text(field.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if session.isMandatory(field) {
+                        Text("*")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                EditableFieldView(field: field, session: session)
             }
         }
     }
@@ -437,20 +609,32 @@ private struct ChildTableView: View {
     let parentValues: [String: FrappeValue]
     /// Desk's per-user grid configuration for this child DocType, if any.
     let serverColumns: [GridColumn]?
+    /// The parent document's fieldname for this table; non-nil while the
+    /// enclosing screen is editing, which turns on row editing/add/delete.
+    let editFieldname: String?
 
     @Environment(AppModel.self) private var model
+    @Environment(\.editSession) private var editSession
     @State private var visibleFieldnames: [String]
     @State private var detailRow: Document?
+    @State private var editingRow: EditingRowSelection?
+
+    struct EditingRowSelection: Identifiable {
+        let index: Int
+        var id: Int { index }
+    }
 
     init(
         title: String?, meta: DocTypeMeta, rows: [Document],
-        parentValues: [String: FrappeValue], serverColumns: [GridColumn]? = nil
+        parentValues: [String: FrappeValue], serverColumns: [GridColumn]? = nil,
+        editFieldname: String? = nil
     ) {
         self.title = title
         self.meta = meta
         self.rows = rows
         self.parentValues = parentValues
         self.serverColumns = serverColumns
+        self.editFieldname = editFieldname
         // Precedence: this device's explicit choice → Desk grid settings →
         // the DocType's in_list_view defaults.
         let stored = UserDefaults.standard.stringArray(forKey: Self.storageKey(meta.name))
@@ -482,12 +666,32 @@ private struct ChildTableView: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 Spacer()
+                if let editFieldname, let session = editSession {
+                    Button {
+                        var tableRows = session.draft[editFieldname]?.arrayValue ?? []
+                        tableRows.append(.object(["doctype": .string(meta.name)]))
+                        session.set(editFieldname, .array(tableRows))
+                        editingRow = EditingRowSelection(index: tableRows.count - 1)
+                    } label: {
+                        Label("Add Row", systemImage: "plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
                 columnsMenu
             }
             grid
         }
         .sheet(item: $detailRow) { row in
             ChildRowDetailSheet(meta: meta, row: row)
+        }
+        .sheet(item: $editingRow) { selection in
+            if let editFieldname, let session = editSession {
+                ChildRowEditor(
+                    meta: meta, parentSession: session,
+                    tableFieldname: editFieldname, index: selection.index)
+            }
         }
     }
 
@@ -547,7 +751,9 @@ private struct ChildTableView: View {
                     Text("")
                 }
                 Divider()
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                // Index identity: new rows have no server name yet, so the
+                // document id would collide.
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     GridRow {
                         Text("\(index + 1)")
                             .font(.caption)
@@ -567,12 +773,16 @@ private struct ChildTableView: View {
                                 .lineLimit(1)
                         }
                         Button {
-                            detailRow = row
+                            if editFieldname != nil {
+                                editingRow = EditingRowSelection(index: index)
+                            } else {
+                                detailRow = row
+                            }
                         } label: {
-                            Image(systemName: "info.circle")
+                            Image(systemName: editFieldname == nil ? "info.circle" : "pencil")
                         }
                         .buttonStyle(.borderless)
-                        .help("Row details")
+                        .help(editFieldname == nil ? "Row details" : "Edit row")
                     }
                 }
             }
@@ -624,6 +834,97 @@ private struct ChildRowDetailSheet: View {
             return value
         }
         return "Row Details"
+    }
+}
+
+/// Editable child row (W3): the row is copied into a local edit session
+/// rendered through the same generic form; Done writes it back into the
+/// parent draft (with the one convention-safe computation, amount =
+/// qty × rate), Cancel discards, Delete removes the row.
+private struct ChildRowEditor: View {
+    let meta: DocTypeMeta
+    let parentSession: EditSession
+    let tableFieldname: String
+    let index: Int
+
+    @State private var localSession: EditSession
+    @State private var initialRow: Document
+    @Environment(\.dismiss) private var dismiss
+
+    init(meta: DocTypeMeta, parentSession: EditSession, tableFieldname: String, index: Int) {
+        self.meta = meta
+        self.parentSession = parentSession
+        self.tableFieldname = tableFieldname
+        self.index = index
+        let raw =
+            parentSession.draft[tableFieldname]?.arrayValue?[safe: index]?.objectValue ?? [:]
+        let row = Document(raw: raw)
+        _initialRow = State(initialValue: row)
+        let session = EditSession(document: row, docstatus: parentSession.docstatus)
+        session.uploadFile = parentSession.uploadFile
+        _localSession = State(initialValue: session)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                DocumentFormView(meta: meta, childMetas: [:], document: initialRow)
+                    .environment(\.editSession, localSession)
+                    .padding()
+            }
+            .navigationTitle("Edit Row \(index + 1)")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .destructiveAction) {
+                    Button(role: .destructive) {
+                        var tableRows = parentSession.draft[tableFieldname]?.arrayValue ?? []
+                        if tableRows.indices.contains(index) {
+                            tableRows.remove(at: index)
+                            parentSession.set(tableFieldname, .array(tableRows))
+                        }
+                        dismiss()
+                    } label: {
+                        Label("Delete Row", systemImage: "trash")
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        apply()
+                        dismiss()
+                    }
+                }
+            }
+        }
+        #if os(macOS)
+            .frame(minWidth: 560, minHeight: 480)
+        #endif
+    }
+
+    private func apply() {
+        var raw = localSession.draft
+        // The only client-side math (ARCHITECTURE §12): the row amount
+        // convention. Taxes, pricing, and totals come back from the server
+        // on save.
+        if meta.field(named: "qty") != nil, meta.field(named: "rate") != nil,
+            meta.field(named: "amount") != nil,
+            let qty = raw["qty"]?.doubleValue, let rate = raw["rate"]?.doubleValue {
+            raw["amount"] = .double(qty * rate)
+        }
+        var tableRows = parentSession.draft[tableFieldname]?.arrayValue ?? []
+        if tableRows.indices.contains(index) {
+            tableRows[index] = .object(raw)
+        } else {
+            tableRows.append(.object(raw))
+        }
+        parentSession.set(tableFieldname, .array(tableRows))
+    }
+}
+
+extension Array {
+    fileprivate subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 

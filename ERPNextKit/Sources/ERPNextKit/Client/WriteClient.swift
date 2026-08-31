@@ -27,6 +27,10 @@ public enum WriteMethod: String, Sendable, CaseIterable {
     case insertDocument = "frappe.client.insert"
     case renameDocument = "frappe.model.rename_doc.update_document_title"
     case applyWorkflow = "frappe.model.workflow.apply_workflow"
+    /// Desk's form save (W3): full document JSON + action Save/Update. The
+    /// document's `modified` timestamp doubles as the optimistic lock — a
+    /// stale draft raises TimestampMismatchError instead of overwriting.
+    case saveDocument = "frappe.desk.form.save.savedocs"
 }
 
 /// The only type in the kit able to issue a non-GET request. Deliberately
@@ -71,7 +75,9 @@ public final class WriteClient: Sendable {
         guard (200..<300).contains(http.statusCode) else {
             throw ERPNextError(
                 message: ReadOnlyClient.serverMessage(from: data, statusCode: http.statusCode),
-                statusCode: http.statusCode)
+                statusCode: http.statusCode,
+                excType: (try? FrappeValue.decode(from: data))?
+                    .objectValue?["exc_type"]?.nonEmptyString)
         }
         return data
     }
@@ -360,5 +366,37 @@ extension WriteSession {
         }
         copy["doctype"] = .string(doctype)
         return copy
+    }
+}
+
+
+// MARK: - W3 field editing
+
+extension WriteSession {
+    /// Save an edited draft. `submitted` selects Desk's "Update" action,
+    /// which restricts the save to `allow_on_submit` fields server-side.
+    public func save(documentRaw: [String: FrappeValue], submitted: Bool) async throws {
+        let json = try FrappeValue.object(documentRaw).encodedJSONString()
+        try await client.call(
+            .saveDocument,
+            parameters: ["doc": json, "action": submitted ? "Update" : "Save"])
+    }
+
+    /// Upload a file for an Attach field: stores it, attaches it to the
+    /// document, and returns the `file_url` to put in the field.
+    public func uploadForField(
+        fileName: String, data: Data, doctype: String, name: String,
+        isPrivate: Bool = true
+    ) async throws -> String {
+        let response = try await client.upload(
+            fileName: fileName, data: data, doctype: doctype, docname: name,
+            isPrivate: isPrivate)
+        guard
+            let url = (try? FrappeValue.decode(from: response))?.objectValue?["message"]?
+                .objectValue?["file_url"]?.nonEmptyString
+        else {
+            throw ERPNextError(message: "The server did not return the uploaded file's URL.")
+        }
+        return url
     }
 }

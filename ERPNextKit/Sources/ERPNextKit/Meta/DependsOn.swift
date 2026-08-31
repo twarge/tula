@@ -34,11 +34,22 @@ public final class DependsOnEvaluator {
     }
 
     public func isVisible(_ expression: String?) -> Bool {
+        evaluate(expression) ?? true
+    }
+
+    /// Truthiness for `read_only_depends_on`/`mandatory_depends_on`: unlike
+    /// visibility, an absent or unevaluable rule counts as *not* triggered
+    /// (Desk leaves the field editable when a rule errors).
+    public func isTruthy(_ expression: String?) -> Bool {
+        evaluate(expression) ?? false
+    }
+
+    private func evaluate(_ expression: String?) -> Bool? {
         guard
             let expression = expression?.trimmingCharacters(in: .whitespacesAndNewlines),
             !expression.isEmpty
-        else { return true }
-        guard let context else { return true }
+        else { return nil }
+        guard let context else { return nil }
 
         let js: String
         if expression.hasPrefix("eval:") {
@@ -48,12 +59,12 @@ public final class DependsOnEvaluator {
             // Bare fieldname → truthiness of that field.
             js = "doc[\(name)]"
         } else {
-            return true
+            return nil
         }
 
         context.exception = nil
         let result = context.evaluateScript("!!(\(js))")
-        guard context.exception == nil else { return true }
-        return result?.toBool() ?? true
+        guard context.exception == nil else { return nil }
+        return result?.toBool()
     }
 }

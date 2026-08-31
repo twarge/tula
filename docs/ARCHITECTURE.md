@@ -156,8 +156,8 @@ the full collaboration surface (comments, assignments, tags, shares, likes, foll
 attachments, reminders) and W2 the document lifecycle (submit, cancel, delete, rename via
 `update_document_title`, duplicate via `frappe.client.insert`, and metadata-driven workflow
 transitions via `apply_workflow`) — every lifecycle action behind an explicit confirmation.
-Field editing and document creation (W3–W4) remain out of scope and impossible by
-construction.
+W3 added field editing as an explicit edit session (below). Document creation (W4) remains
+out of scope and impossible by construction.
 
 **For any further writes**: keep this structure — do not dilute `ReadOnlyClient`. Add a separate, explicitly-gated write client with its own
 enumerated mutation whitelist (save/submit/cancel/amend), a distinct capability protocol
@@ -419,7 +419,7 @@ document's status badge for everyone, locked or not. The server stays authoritat
 transition permissions — the client shows the current state's transitions and surfaces a
 permission error if the user lacks the role.
 
-**W3 — Field editing (L, the core).** Edit mode on drafts (+ `allow_on_submit` fields on
+**W3 — Field editing (L, the core). *Shipped.*** Edit mode on drafts (+ `allow_on_submit` fields on
 submitted docs); the field registry grows editable counterparts per fieldtype (TextField /
 TextEditor / numeric with formatters / pickers / Toggle / Select Picker / Link type-ahead
 reusing the filter-chip search / editable child-table rows via the row-detail sheet / file
@@ -430,6 +430,19 @@ cached `modified` token (optimistic concurrency — TimestampMismatch → reload
 lost in v1); auto-refresh pauses during an edit session. **Server-computed fields rule:**
 the client does only convention-safe math (amount = qty × rate); taxes, pricing rules, and
 totals refresh from server truth on save, displayed as such.
+
+*As built:* an explicit edit session (pencil in the periphery bar while unlocked) rather
+than always-live fields — an observable `EditSession` (draft dict + draft-backed
+depends_on evaluator + the editability rules) rides the SwiftUI environment, so the whole
+form chain switches to editors without threading bindings, and a child-row sheet composes
+by wrapping itself in its own local session, written back on Done. Save posts the full
+draft through `frappe.desk.form.save.savedocs` (action Save, or Update for
+allow_on_submit edits on submitted docs); the draft's `modified` token is the optimistic
+lock, and a `TimestampMismatchError` (detected via `exc_type`) swaps the edit bar for a
+reload banner — draft lost in v1, as designed. Attach fields upload through the gate and
+store the returned `file_url`. Deferred: client-side mandatory validation (the server
+reports it inline), Time as a plain text field, and HTML/markdown fields editing as
+plain text.
 
 **W4 — Creation (M, after W3).** New-document buttons on lists/workspaces; Quick Entry
 sheets generated from the meta's quick-entry fields (Desk's own compact-create pattern);

@@ -22,13 +22,24 @@ public struct ServerConfiguration: Sendable, Hashable {
 public struct ERPNextError: Error, LocalizedError, Sendable {
     public var message: String
     public var statusCode: Int?
+    /// Frappe's exception class name (e.g. TimestampMismatchError), when the
+    /// response carried one.
+    public var excType: String?
 
-    public init(message: String, statusCode: Int? = nil) {
+    public init(message: String, statusCode: Int? = nil, excType: String? = nil) {
         self.message = message
         self.statusCode = statusCode
+        self.excType = excType
     }
 
     public var errorDescription: String? { message }
+
+    /// The optimistic-concurrency conflict: the document changed on the
+    /// server after this draft was opened.
+    public var isTimestampMismatch: Bool {
+        excType == "TimestampMismatchError"
+            || message.contains("modified after you have opened")
+    }
 }
 
 /// RPC methods this client is allowed to call.

@@ -43,6 +43,19 @@ public struct DocField: Sendable, Hashable, Identifiable {
     public var collapsible: Bool { raw["collapsible"]?.boolValue ?? false }
     public var precision: Int? { raw["precision"]?.intValue }
 
+    // Editability metadata (W3). Desk semantics: `read_only` and permlevel
+    // guard the field; `set_only_once` locks it after first save; on a
+    // submitted document only `allow_on_submit` fields stay editable;
+    // `read_only_depends_on` / `mandatory_depends_on` evaluate like
+    // depends_on against the live document.
+    public var readOnly: Bool { raw["read_only"]?.boolValue ?? false }
+    public var reqd: Bool { raw["reqd"]?.boolValue ?? false }
+    public var setOnlyOnce: Bool { raw["set_only_once"]?.boolValue ?? false }
+    public var allowOnSubmit: Bool { raw["allow_on_submit"]?.boolValue ?? false }
+    public var permlevel: Int { raw["permlevel"]?.intValue ?? 0 }
+    public var readOnlyDependsOn: String? { raw["read_only_depends_on"]?.nonEmptyString }
+    public var mandatoryDependsOn: String? { raw["mandatory_depends_on"]?.nonEmptyString }
+
     public var selectChoices: [String] {
         guard fieldtype == .select, let options else { return [] }
         return options.split(separator: "\n").map(String.init).filter { !$0.isEmpty }

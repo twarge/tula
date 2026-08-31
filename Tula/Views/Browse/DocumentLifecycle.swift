@@ -10,6 +10,10 @@ struct LifecycleCluster: View {
     let name: String
     let documentRaw: [String: FrappeValue]
     let periphery: DocumentPeriphery
+    var isEditing: Bool = false
+    /// Enters the W3 edit session; nil when nothing on the document is
+    /// editable at its docstatus.
+    var onEdit: (() -> Void)? = nil
     var onMutate: () -> Void = {}
 
     @Environment(AppModel.self) private var model
@@ -36,8 +40,20 @@ struct LifecycleCluster: View {
     }
 
     var body: some View {
-        if model.writeSession != nil {
+        // Lifecycle actions step aside while an edit session is open —
+        // Save/Discard own the document until it closes.
+        if model.writeSession != nil && !isEditing {
             HStack(spacing: 6) {
+                if let onEdit {
+                    Button {
+                        onEdit()
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Edit fields")
+                }
                 // With an active workflow, its transitions drive docstatus —
                 // Desk hides the plain Submit button in that case.
                 ForEach(periphery.workflowActions, id: \.self) { action in
