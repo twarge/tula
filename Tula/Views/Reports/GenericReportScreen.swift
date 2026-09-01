@@ -16,7 +16,6 @@ struct GenericReportScreen: View {
     @State private var state: LoadState<ReportResult> = .loading
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
-    @State private var pdfURL: URL?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,7 +28,9 @@ struct GenericReportScreen: View {
         .navigationTitle(reportName)
         .toolbar {
             SearchToolbar()
-            PDFExportToolbar(url: pdfURL)
+            PDFExportToolbar(
+                title: reportName, subtitle: pdfSubtitle,
+                result: loadedResult, fallbackCurrency: model.fallbackCurrencyCode)
             OpenInDeskToolbar(route: .queryReport(name: reportName, extra: [:]))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
@@ -58,6 +59,31 @@ struct GenericReportScreen: View {
         case .loaded(let result):
             ReportResultView(result: result, fallbackCurrency: model.fallbackCurrencyCode)
         }
+    }
+
+    private var loadedResult: ReportResult? {
+        if case .loaded(let result) = state { return result }
+        return nil
+    }
+
+    /// The applied filters, readable — Desk prints them under the report
+    /// title, so the PDF records what it's showing.
+    private var pdfSubtitle: String? {
+        let parts = (definitions ?? []).filter { !$0.hidden }.compactMap {
+            definition -> String? in
+            guard let value = values[definition.fieldname], !value.isEmpty else { return nil }
+            let display: String
+            switch definition.fieldtype {
+            case .check:
+                display = value == "1" ? "Yes" : "No"
+            case .date, .datetime:
+                display = ValueFormatting.string(for: .string(value), fieldtype: .date)
+            default:
+                display = value
+            }
+            return "\(definition.label): \(display)"
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var valuesKey: String {
@@ -145,9 +171,6 @@ struct GenericReportScreen: View {
             if !model.isDemo {
                 SessionCache.saveReportSnapshot(result, forKey: cacheKey)
             }
-            pdfURL = ReportPDF.render(
-                title: reportName, subtitle: nil, result: result,
-                fallbackCurrency: model.fallbackCurrencyCode)
         } catch {
             if case .loaded = state {} else {
                 state = .failed(error.localizedDescription)

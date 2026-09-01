@@ -454,6 +454,7 @@ private struct FilterConditionRow: View {
                     DatePicker("", selection: betweenDateBinding(1), displayedComponents: .date)
                         .labelsHidden()
                 }
+                .environment(\.timeZone, TimeZone(identifier: "UTC") ?? .current)
             } else {
                 HStack(spacing: 6) {
                     TextField("From", text: betweenComponent(0))
@@ -490,6 +491,7 @@ private struct FilterConditionRow: View {
                     "", selection: dateBinding, displayedComponents: .date
                 )
                 .labelsHidden()
+                .environment(\.timeZone, TimeZone(identifier: "UTC") ?? .current)
             default:
                 TextField("Value", text: $condition.value)
                     .textFieldStyle(.roundedBorder)

@@ -17,7 +17,6 @@ struct ReportScreen: View {
     @State private var glState: GeneralLedgerFilterState
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
-    @State private var pdfURL: URL?
 
     init(descriptor: ReportDescriptor, extra: [String: FrappeValue] = [:]) {
         self.descriptor = descriptor
@@ -56,7 +55,9 @@ struct ReportScreen: View {
         .navigationTitle(descriptor.title)
         .toolbar {
             SearchToolbar()
-            PDFExportToolbar(url: pdfURL)
+            PDFExportToolbar(
+                title: descriptor.title, subtitle: pdfSubtitle,
+                result: loadedResult, fallbackCurrency: model.fallbackCurrencyCode)
             OpenInDeskToolbar(route: .report(descriptor))
             RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
         }
@@ -177,6 +178,11 @@ struct ReportScreen: View {
         return (glState.fromDate ?? fiscalYear.startDate, glState.toDate ?? fiscalYear.endDate)
     }
 
+    private var loadedResult: ReportResult? {
+        if case .loaded(let result) = state { return result }
+        return nil
+    }
+
     private var pdfSubtitle: String {
         let parts: [String?]
         if isGeneralLedger {
@@ -224,9 +230,6 @@ struct ReportScreen: View {
             if !model.isDemo {
                 SessionCache.saveReportSnapshot(result, forKey: cacheKey)
             }
-            pdfURL = ReportPDF.render(
-                title: descriptor.title, subtitle: pdfSubtitle,
-                result: result, fallbackCurrency: model.fallbackCurrencyCode)
         } catch {
             // Keep the cached/snapshot content on refresh failure (offline);
             // only surface errors when there's nothing to show.

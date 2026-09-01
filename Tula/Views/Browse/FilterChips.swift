@@ -8,16 +8,24 @@ struct SelectFilterChip: View {
     @Binding var value: String?
     /// Optional display transform (e.g. "1" → "Yes").
     var display: (String) -> String = { $0 }
+    /// Check filters are strictly one-of; no "Any" row, no cleared state.
+    var allowsAny = true
 
     var body: some View {
         Menu {
-            Button("Any \(label)") { value = nil }
-            Divider()
+            if allowsAny {
+                Button("Any \(label)") { value = nil }
+                Divider()
+            }
             ForEach(choices, id: \.self) { choice in
                 Toggle(isOn: Binding {
                     value == choice
                 } set: { isOn in
-                    value = isOn ? choice : nil
+                    if isOn {
+                        value = choice
+                    } else if allowsAny {
+                        value = nil
+                    }
                 }) {
                     Text(display(choice))
                 }
@@ -57,6 +65,7 @@ struct DateFilterChip: View {
                 DatePicker("", selection: $date, displayedComponents: .date)
                     .datePickerStyle(.graphical)
                     .labelsHidden()
+                    .environment(\.timeZone, TimeZone(identifier: "UTC") ?? .current)
                 HStack {
                     if value != nil {
                         Button("Clear") {
