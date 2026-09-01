@@ -31,10 +31,14 @@ enum Route: Hashable {
         case .queryReport(let name, let extra):
             // Drill-downs read as their scope in the Go menu, not as a bare
             // duplicate of the plain report.
-            let account =
-                extra["account"]?.arrayValue?.first?.nonEmptyString
-                ?? extra["account"]?.nonEmptyString
-            return account.map { "\(name) · \($0)" } ?? name
+            let scope = ["account", "party", "party_account", "item_code"]
+                .lazy
+                .compactMap { key in
+                    extra[key]?.arrayValue?.first?.nonEmptyString
+                        ?? extra[key]?.nonEmptyString
+                }
+                .first
+            return scope.map { "\(name) · \($0)" } ?? name
         case .reportBrowser:
             return "All Reports"
         case .workspace(let name):

@@ -115,17 +115,55 @@ struct ReportScreen: View {
         }
     }
 
+    private func drillRoute(for row: ReportRow, column: ReportColumn?) -> Route? {
+        switch descriptor.filterStyle {
+        case .financialStatement:
+            return statementDrill(for: row, column: column)
+        case .fiscalYearRange:
+            return trialBalanceDrill(for: row, column: column)
+        case .dateRange:
+            return nil
+        }
+    }
+
     /// P&L / Balance Sheet / Cash Flow cells drill into the General Ledger —
     /// Desk's core accountant motion, carrying the statement's own scoping
     /// (project, cost center, finance book, currency) along. The account
     /// cell (nil column) and the Total column cover the whole reporting
     /// span; a period column's cell narrows to that column's date range.
-    private func drillRoute(for row: ReportRow, column: ReportColumn?) -> Route? {
-        guard case .financialStatement = descriptor.filterStyle else { return nil }
+    /// Receivable/Payable accounts hand off to the AR/AP ageing reports
+    /// instead, as Desk does.
+    private func statementDrill(for row: ReportRow, column: ReportColumn?) -> Route? {
         guard let account = row.values["account"]?.nonEmptyString,
             !account.isQuotedTotalLabel
         else { return nil }
         if let column, !column.fieldtype.isNumeric { return nil }
+
+        let period = column.flatMap { periodSpan(for: $0) }
+        if let accountType = row.values["account_type"]?.nonEmptyString,
+            accountType == "Receivable" || accountType == "Payable" {
+            var options: [String: FrappeValue] = ["party_account": .string(account)]
+            if let company = model.filterState.company {
+                options["company"] = .string(company.name)
+            }
+            // AR/AP are as-of reports: the clicked column's end date, else
+            // the span end (Desk always uses the span end).
+            if let asOf = period?.end ?? model.filterState.effectiveDateSpan?.end {
+                options["report_date"] = .string(asOf)
+            }
+            if let financeBook = model.filterState.financeBook {
+                options["finance_book"] = .string(financeBook)
+            }
+            if let costCenter = model.filterState.costCenter {
+                options["cost_center"] = .array([.string(costCenter)])
+            }
+            if let project = model.filterState.project {
+                options["project"] = .array([.string(project)])
+            }
+            return .queryReport(
+                name: accountType == "Receivable" ? "Accounts Receivable" : "Accounts Payable",
+                extra: options)
+        }
 
         var seed = GeneralLedgerFilterState()
         seed.account = account
@@ -138,10 +176,27 @@ struct ReportScreen: View {
             seed.fromDate = span.start
             seed.toDate = span.end
         }
-        if let column, let period = periodSpan(for: column) {
+        if let period {
             seed.fromDate = period.start
             seed.toDate = period.end
         }
+        return .queryReport(name: StandardReports.generalLedger.name, extra: seed.routeOptions)
+    }
+
+    /// Trial Balance account rows drill into the General Ledger over the
+    /// fiscal year. One target ties to every column: GL's own Opening,
+    /// Total, and Closing rows are the TB's opening, movement, and closing
+    /// figures for that account.
+    private func trialBalanceDrill(for row: ReportRow, column: ReportColumn?) -> Route? {
+        guard let account = row.values["account"]?.nonEmptyString,
+            !account.isQuotedTotalLabel,
+            let fiscalYear = model.filterState.fiscalYear
+        else { return nil }
+        if let column, !column.fieldtype.isNumeric { return nil }
+        var seed = GeneralLedgerFilterState()
+        seed.account = account
+        seed.fromDate = fiscalYear.startDate
+        seed.toDate = fiscalYear.endDate
         return .queryReport(name: StandardReports.generalLedger.name, extra: seed.routeOptions)
     }
 
@@ -388,6 +443,18 @@ struct GeneralLedgerAdvancedFilters: View {
 
                 Divider()
 
+                labeled("Group By") {
+                    Picker("Group By", selection: $state.categorizeBy) {
+                        ForEach(
+                            GeneralLedgerFilterState.categorizeChoices, id: \.self
+                        ) { choice in
+                            Text(choice).tag(choice)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                }
                 Toggle(
                     "Include Default FB Entries",
                     isOn: $state.includeDefaultBookEntries)

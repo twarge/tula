@@ -14,11 +14,20 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
     public var financeBook: String?
     public var presentationCurrency: String?
     public var includeDefaultBookEntries: Bool
+    /// Desk's grouping mode, without the "Group by"/"Categorize by" verb —
+    /// one of `Self.categorizeChoices`.
+    public var categorizeBy: String
+
+    public static let defaultCategorizeBy = "Voucher (Consolidated)"
+    public static let categorizeChoices = [
+        "Voucher (Consolidated)", "Voucher", "Account", "Party",
+    ]
 
     public init(
         fromDate: String? = nil, toDate: String? = nil, account: String? = nil,
         project: String? = nil, costCenter: String? = nil, financeBook: String? = nil,
-        presentationCurrency: String? = nil, includeDefaultBookEntries: Bool = true
+        presentationCurrency: String? = nil, includeDefaultBookEntries: Bool = true,
+        categorizeBy: String = GeneralLedgerFilterState.defaultCategorizeBy
     ) {
         self.fromDate = fromDate
         self.toDate = toDate
@@ -28,6 +37,7 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         self.financeBook = financeBook
         self.presentationCurrency = presentationCurrency
         self.includeDefaultBookEntries = includeDefaultBookEntries
+        self.categorizeBy = categorizeBy
     }
 
     /// Decodes a drill-down route's options. Scoping filters accept either a
@@ -82,10 +92,10 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         }
         filters["include_default_book_entries"] = .int(includeDefaultBookEntries ? 1 : 0)
         // ERPNext v16 renamed the grouping filter group_by → categorize_by
-        // (values relabeled to match). The base filters' group_by covers v15
-        // and earlier; sending the v16 spelling too keeps every version
-        // grouping by voucher without a version probe.
-        filters["categorize_by"] = .string("Categorize by Voucher (Consolidated)")
+        // (values relabeled to match). Sending both spellings keeps every
+        // version grouping the same way without a version probe.
+        filters["group_by"] = .string("Group by \(categorizeBy)")
+        filters["categorize_by"] = .string("Categorize by \(categorizeBy)")
     }
 
     /// True when any popover filter differs from its default (drives the
@@ -93,6 +103,7 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
     public var hasAdvancedFilters: Bool {
         project != nil || costCenter != nil || financeBook != nil
             || presentationCurrency != nil || !includeDefaultBookEntries
+            || categorizeBy != Self.defaultCategorizeBy
     }
 
     /// Stable identity for screen caches (every field participates).
@@ -100,7 +111,7 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         [
             fromDate ?? "-", toDate ?? "-", account ?? "-", project ?? "-",
             costCenter ?? "-", financeBook ?? "-", presentationCurrency ?? "-",
-            includeDefaultBookEntries ? "1" : "0",
+            includeDefaultBookEntries ? "1" : "0", categorizeBy,
         ].joined(separator: "|")
     }
 }

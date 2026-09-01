@@ -34,6 +34,9 @@ public struct ReportFilterDefinition: Sendable, Hashable, Identifiable {
     public var defaultValue: String?
     public var required: Bool
     public var hidden: Bool
+    /// Desk MultiSelectList filters take list values on the wire even when
+    /// only one entry is set — `party in %(party)s` server-side.
+    public var isMultiSelect: Bool = false
 
     public var id: String { fieldname }
 }
@@ -83,7 +86,8 @@ public enum ReportFilterParser {
             guard let dict = entry.objectValue,
                 let fieldname = dict["fieldname"]?.nonEmptyString
             else { return nil }
-            let fieldtype = FieldType(rawValue: dict["fieldtype"]?.nonEmptyString ?? "Data")
+            let rawFieldtype = dict["fieldtype"]?.nonEmptyString ?? "Data"
+            let fieldtype = FieldType(rawValue: rawFieldtype)
 
             var linkTarget: String?
             var choices: [String] = []
@@ -109,7 +113,8 @@ public enum ReportFilterParser {
                 selectOptions: choices,
                 defaultValue: dict["default"]?.nonEmptyString,
                 required: dict["reqd"]?.boolValue ?? false,
-                hidden: dict["hidden"]?.boolValue ?? false)
+                hidden: dict["hidden"]?.boolValue ?? false,
+                isMultiSelect: rawFieldtype == "MultiSelectList")
         }
         return definitions.isEmpty ? nil : definitions
     }
@@ -131,6 +136,15 @@ public enum ReportFilterParser {
         var frappe = {
             query_reports: {},
             _company: \(companyJSON),
+            provide: function(namespace) {
+                var parts = namespace.split(".");
+                var obj = globalThis;
+                for (var i = 0; i < parts.length; i++) {
+                    obj[parts[i]] = obj[parts[i]] || {};
+                    obj = obj[parts[i]];
+                }
+                return obj;
+            },
             defaults: {
                 get_user_default: function(key) {
                     return key === "Company" || key === "company" ? frappe._company : "";

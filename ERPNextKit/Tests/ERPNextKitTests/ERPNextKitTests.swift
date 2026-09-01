@@ -722,3 +722,155 @@ final class GeneralLedgerFilterStateTests: XCTestCase {
         XCTAssertEqual(filters["include_default_book_entries"], .int(1))
     }
 }
+
+final class ReportDrillRulesTests: XCTestCase {
+    private let numeric = ReportColumn(
+        value: .object([
+            "fieldname": .string("outstanding"), "label": .string("Outstanding Amount"),
+            "fieldtype": .string("Currency"),
+        ]), index: 1)!
+
+    func testReceivableSummaryDrillsToDetail() {
+        let drill = ReportDrillRules.drill(
+            report: "Accounts Receivable Summary",
+            row: ["party": .string("Grant Plastics Ltd."), "outstanding": .double(1200)],
+            column: numeric,
+            filters: [
+                "company": .string("Wind Power LLC"),
+                "report_date": .string("2025-12-31"),
+                "party_type": .string("Customer"),
+                "cost_center": .array([.string("Main - WPL")]),
+            ])
+        XCTAssertEqual(drill?.report, "Accounts Receivable")
+        XCTAssertEqual(drill?.options["party"], .array([.string("Grant Plastics Ltd.")]))
+        XCTAssertEqual(drill?.options["report_date"], .string("2025-12-31"))
+        XCTAssertEqual(drill?.options["cost_center"], .array([.string("Main - WPL")]))
+
+        // Text cells and total rows don't drill.
+        XCTAssertNil(
+            ReportDrillRules.drill(
+                report: "Accounts Receivable Summary",
+                row: ["party": .string("Grant Plastics Ltd.")], column: nil, filters: [:]))
+        XCTAssertNil(
+            ReportDrillRules.drill(
+                report: "Accounts Receivable Summary",
+                row: ["party": .string("'Total'")], column: numeric, filters: [:]))
+    }
+
+    func testStockBalanceDrillsToStockLedger() {
+        let drill = ReportDrillRules.drill(
+            report: "Stock Balance",
+            row: [
+                "item_code": .string("TURBINE-BLADE"),
+                "warehouse": .string("Stores - WPL"),
+                "bal_qty": .double(14),
+            ],
+            column: numeric,
+            filters: [
+                "company": .string("Wind Power LLC"),
+                "from_date": .string("2025-01-01"), "to_date": .string("2025-12-31"),
+            ])
+        XCTAssertEqual(drill?.report, "Stock Ledger")
+        XCTAssertEqual(drill?.options["item_code"], .string("TURBINE-BLADE"))
+        XCTAssertEqual(drill?.options["warehouse"], .string("Stores - WPL"))
+        XCTAssertEqual(drill?.options["from_date"], .string("2025-01-01"))
+    }
+
+    func testTrialBalanceForPartyDrillsToGL() {
+        let drill = ReportDrillRules.drill(
+            report: "Trial Balance for Party",
+            row: ["party": .string("Northwind Research")],
+            column: numeric,
+            filters: [
+                "company": .string("Wind Power LLC"),
+                "from_date": .string("2025-01-01"), "to_date": .string("2025-12-31"),
+                "party_type": .string("Customer"),
+            ])
+        XCTAssertEqual(drill?.report, "General Ledger")
+        XCTAssertEqual(drill?.options["party"], .array([.string("Northwind Research")]))
+        XCTAssertEqual(drill?.options["party_type"], .string("Customer"))
+    }
+
+    func testBudgetVarianceActualColumnParsing() {
+        // Offset fiscal year: Jan belongs to the FY's closing calendar year.
+        let years = [FiscalYear(name: "2025-2026", startDate: "2025-04-01", endDate: "2026-03-31")]
+        let actualJan = ReportColumn(
+            value: .object([
+                "fieldname": .string("actual_(jan)_2025_2026"),
+                "label": .string("Actual (Jan) 2025-2026"),
+                "fieldtype": .string("Float"),
+            ]), index: 3)!
+        let row: [String: FrappeValue] = [
+            "budget_against": .string("Main - WPL"), "account": .string("Marketing - WPL"),
+        ]
+        let filters: [String: FrappeValue] = [
+            "company": .string("Wind Power LLC"), "budget_against": .string("Cost Center"),
+        ]
+        let drill = ReportDrillRules.drill(
+            report: "Budget Variance Report", row: row, column: actualJan,
+            filters: filters, fiscalYears: years)
+        XCTAssertEqual(drill?.report, "General Ledger")
+        XCTAssertEqual(drill?.options["from_date"], .string("2026-01-01"))
+        XCTAssertEqual(drill?.options["to_date"], .string("2026-01-31"))
+        XCTAssertEqual(drill?.options["cost_center"], .array([.string("Main - WPL")]))
+        XCTAssertEqual(drill?.options["account"], .array([.string("Marketing - WPL")]))
+
+        // Quarterly suffix spans months; yearly has no suffix.
+        XCTAssertEqual(
+            ReportDrillRules.monthSpan("Oct-Dec", in: years[0])?.start, "2025-10-01")
+        XCTAssertEqual(
+            ReportDrillRules.monthSpan("Oct-Dec", in: years[0])?.end, "2025-12-31")
+        let yearly = ReportColumn(
+            value: .object([
+                "fieldname": .string("actual_2025_2026"),
+                "label": .string("Actual 2025-2026"),
+                "fieldtype": .string("Float"),
+            ]), index: 3)!
+        let yearlyDrill = ReportDrillRules.drill(
+            report: "Budget Variance Report", row: row, column: yearly,
+            filters: filters, fiscalYears: years)
+        XCTAssertEqual(yearlyDrill?.options["from_date"], .string("2025-04-01"))
+        XCTAssertEqual(yearlyDrill?.options["to_date"], .string("2026-03-31"))
+
+        // Budget columns never drill (not ledger-backed).
+        let budget = ReportColumn(
+            value: .object([
+                "fieldname": .string("budget_(jan)_2025_2026"),
+                "label": .string("Budget (Jan) 2025-2026"),
+                "fieldtype": .string("Float"),
+            ]), index: 2)!
+        XCTAssertNil(
+            ReportDrillRules.drill(
+                report: "Budget Variance Report", row: row, column: budget,
+                filters: filters, fiscalYears: years))
+    }
+
+    func testCategorizeByTravelsBothSpellings() {
+        var filters: [String: FrappeValue] = [:]
+        var state = GeneralLedgerFilterState()
+        state.categorizeBy = "Account"
+        state.apply(to: &filters)
+        XCTAssertEqual(filters["group_by"], .string("Group by Account"))
+        XCTAssertEqual(filters["categorize_by"], .string("Categorize by Account"))
+    }
+
+    func testMultiSelectListFilterParses() throws {
+        // frappe.provide leads Desk's heavier report scripts (Accounts
+        // Receivable et al) — the stub must survive it.
+        let script = #"""
+            frappe.provide("erpnext.utils");
+            frappe.query_reports["Party Demo"] = {
+                filters: [
+                    { fieldname: "company", fieldtype: "Link", options: "Company" },
+                    { fieldname: "party", fieldtype: "MultiSelectList", options: "party_type" }
+                ]
+            };
+            erpnext.utils.add_dimensions("Party Demo", 9);
+            """#
+        let definitions = try XCTUnwrap(
+            ReportFilterParser.definitions(reportName: "Party Demo", script: script))
+        XCTAssertEqual(definitions.count, 2)
+        XCTAssertFalse(definitions[0].isMultiSelect)
+        XCTAssertTrue(definitions[1].isMultiSelect)
+    }
+}

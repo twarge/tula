@@ -353,7 +353,17 @@ missing is navigation and filters:
    own editable filter state (`GeneralLedgerFilterState`, Desk `route_options` semantics)
    instead of being pinned invisibly — the GL bar shows from/to date pickers and the
    account, so a drilled period can be widened in place. The GL request sends both
-   `group_by` (≤ v15) and `categorize_by` (v16 rename) for version-independent grouping.
+   `group_by` (≤ v15) and `categorize_by` (v16 rename) for version-independent grouping,
+   and the grouping itself is a popover picker (`categorizeBy`). Sep 2026: Trial Balance
+   rows drill to GL over the fiscal year (GL's own Opening/Total/Closing rows tie to the
+   TB columns); Receivable/Payable accounts hand off to the AR/AP ageing reports as Desk
+   does (`party_account` + `report_date`, per-period cells narrowing the as-of date); the
+   generic report screen *seeds* drill options into its parsed filter chips (pinning only
+   options with no matching filter) and sends MultiSelectList values as one-element
+   arrays; and `ReportDrillRules` declares registry drills Desk implements as JS
+   formatters — AR/AP Summary → detail by party, Trial Balance for Party → GL, Stock
+   Balance → Stock Ledger by item/warehouse, Budget Variance actuals → GL with the
+   column's month range parsed from its label.
 4. **Report charts** — `query_report.run` already returns `chart` config; render with
    Swift Charts above the grid. (M)
 

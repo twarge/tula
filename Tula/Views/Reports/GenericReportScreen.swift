@@ -4,7 +4,9 @@ import SwiftUI
 /// Runs any server report: filter definitions are parsed from the report's
 /// Desk client script (`ReportFilterParser`), rendered as native chips, and
 /// the result flows through the same table/chart/tiles renderer as the
-/// financial statements. `extra` carries pinned drill-down filters.
+/// financial statements. `extra` carries drill-down filters, which *seed*
+/// the matching chips (Desk route_options semantics — applied once, then
+/// editable); only options with no matching filter stay pinned.
 struct GenericReportScreen: View {
     let reportName: String
     var extra: [String: FrappeValue] = [:]
@@ -57,8 +59,21 @@ struct GenericReportScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let result):
-            ReportResultView(result: result, fallbackCurrency: model.fallbackCurrencyCode)
+            ReportResultView(
+                result: result, fallbackCurrency: model.fallbackCurrencyCode,
+                drillRoute: drillRoute(for:column:))
         }
+    }
+
+    /// Declarative drill-downs (ReportDrillRules): AR/AP Summary → detail,
+    /// Trial Balance for Party → GL, Stock Balance → Stock Ledger, Budget
+    /// Variance actuals → GL.
+    private func drillRoute(for row: ReportRow, column: ReportColumn?) -> Route? {
+        guard let drill = ReportDrillRules.drill(
+            report: reportName, row: row.values, column: column,
+            filters: wireFilters(), fiscalYears: model.fiscalYears)
+        else { return nil }
+        return .queryReport(name: drill.report, extra: drill.options)
     }
 
     private var loadedResult: ReportResult? {
@@ -84,6 +99,27 @@ struct GenericReportScreen: View {
             return "\(definition.label): \(display)"
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The chip values as request filters. MultiSelectList filters go out as
+    /// one-element arrays (the server runs `in %(...)s` over them); drill
+    /// options with no matching filter definition stay pinned on top.
+    private func wireFilters() -> [String: FrappeValue] {
+        var filters: [String: FrappeValue] = [:]
+        for definition in definitions ?? [] {
+            var value = values[definition.fieldname] ?? ""
+            if value.isEmpty, definition.hidden {
+                value = definition.defaultValue ?? ""
+            }
+            guard !value.isEmpty else { continue }
+            filters[definition.fieldname] =
+                definition.isMultiSelect ? .array([.string(value)]) : .string(value)
+        }
+        for (key, value) in extra
+        where !(definitions ?? []).contains(where: { $0.fieldname == key }) {
+            filters[key] = value
+        }
+        return filters
     }
 
     private var valuesKey: String {
@@ -126,7 +162,22 @@ struct GenericReportScreen: View {
                 values[definition.fieldname] = defaultValue
             }
         }
+        // Drill-down options seed the matching chips — visible and editable,
+        // never silently pinned over the bar.
+        for definition in definitions {
+            if let value = extra[definition.fieldname], let seed = Self.seedString(value) {
+                values[definition.fieldname] = seed
+            }
+        }
         seeded = true
+    }
+
+    /// A route option as chip text (chips hold single strings; one-element
+    /// MultiSelectList arrays unwrap).
+    private static func seedString(_ value: FrappeValue) -> String? {
+        value.nonEmptyString ?? value.arrayValue?.first?.nonEmptyString
+            ?? value.intValue.map(String.init)
+            ?? value.doubleValue.map { String($0) }
     }
 
     private func load() async {
@@ -153,18 +204,8 @@ struct GenericReportScreen: View {
         }
 
         do {
-            var filters: [String: FrappeValue] = [:]
-            for definition in definitions ?? [] {
-                if let value = values[definition.fieldname], !value.isEmpty {
-                    filters[definition.fieldname] = .string(value)
-                } else if definition.hidden, let defaultValue = definition.defaultValue {
-                    filters[definition.fieldname] = .string(defaultValue)
-                }
-            }
-            for (key, value) in extra {
-                filters[key] = value
-            }
-            let result = try await model.dataSource.runReport(reportName, filters: filters)
+            let result = try await model.dataSource.runReport(
+                reportName, filters: wireFilters())
             state = .loaded(result)
             lastUpdated = Date()
             model.cache.setScreen(cacheKey, result)
@@ -209,7 +250,8 @@ struct GenericFilterBar: View {
             SelectFilterChip(
                 label: definition.label, choices: ["1", "0"],
                 value: $values[definition.fieldname],
-                display: { $0 == "1" ? "Yes" : "No" })
+                display: { $0 == "1" ? "Yes" : "No" },
+                allowsAny: false)
         case .date, .datetime:
             DateFilterChip(label: definition.label, value: $values[definition.fieldname])
         case .link where definition.options != nil:
