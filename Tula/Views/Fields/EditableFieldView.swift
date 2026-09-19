@@ -104,7 +104,10 @@ extension ToggleStyle where Self == SwitchToggleStyle {
 }
 
 /// Numeric editor that tolerates in-progress typing ("3.", "-"): the text
-/// is local state, committed into the draft whenever it parses.
+/// is local state, committed into the draft whenever it parses. Both
+/// directions follow the system locale — typed grouping separators are
+/// accepted ("100,000"), and the value reads back grouped like the display
+/// formatters print it.
 private struct NumericField: View {
     let value: Binding<FrappeValue?>
     let integer: Bool
@@ -129,16 +132,21 @@ private struct NumericField: View {
                 .keyboardType(integer ? .numberPad : .decimalPad)
             #endif
             .onChange(of: text) { _, newText in
+                // The canonical text of the current value (set on blur) is
+                // not an edit; reparsing it would only shed precision.
+                guard newText != Self.display(value.wrappedValue, integer: integer)
+                else { return }
                 if newText.isEmpty {
                     value.wrappedValue = integer ? .int(0) : .double(0)
-                } else if integer, let parsed = Int(newText) {
+                } else if integer, let parsed = NumberInput.int(from: newText) {
                     value.wrappedValue = .int(parsed)
-                } else if !integer, let parsed = Double(newText) {
+                } else if !integer, let parsed = NumberInput.double(from: newText) {
                     value.wrappedValue = .double(parsed)
                 }
             }
             .onChange(of: focused) { _, isFocused in
-                // Re-canonicalize on blur so "3." becomes "3".
+                // Re-canonicalize on blur so "3." becomes "3" and "100000"
+                // becomes "100,000".
                 if !isFocused {
                     text = Self.display(value.wrappedValue, integer: integer)
                 }
@@ -146,10 +154,9 @@ private struct NumericField: View {
     }
 
     private static func display(_ value: FrappeValue?, integer: Bool) -> String {
-        if integer { return value?.intValue.map(String.init) ?? "" }
+        if integer { return value?.intValue?.formatted() ?? "" }
         guard let number = value?.doubleValue else { return "" }
-        return number == number.rounded() && abs(number) < 1e15
-            ? String(Int(number)) : String(number)
+        return number.formatted(.number.precision(.fractionLength(0...9)))
     }
 }
 

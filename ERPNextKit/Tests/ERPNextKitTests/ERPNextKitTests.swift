@@ -152,6 +152,31 @@ final class MetaTests: XCTestCase {
     }
 }
 
+final class NumberInputTests: XCTestCase {
+    func testGroupingAndDecimalFollowTheLocale() {
+        let us = Locale(identifier: "en_US")
+        XCTAssertEqual(NumberInput.double(from: "100,000", locale: us), 100_000)
+        XCTAssertEqual(NumberInput.double(from: "1,442,593.4025", locale: us), 1_442_593.4025)
+        XCTAssertEqual(NumberInput.double(from: "$ 1,000.50", locale: us), 1000.5)
+        XCTAssertEqual(NumberInput.double(from: "-2.5", locale: us), -2.5)
+        XCTAssertEqual(NumberInput.double(from: "3.", locale: us), 3)
+        // In-progress typing keeps tracking the digits so far.
+        XCTAssertEqual(NumberInput.double(from: "100,", locale: us), 100)
+        XCTAssertNil(NumberInput.double(from: "", locale: us))
+        XCTAssertNil(NumberInput.double(from: "-", locale: us))
+
+        let de = Locale(identifier: "de_DE")
+        XCTAssertEqual(NumberInput.double(from: "100.000", locale: de), 100_000)
+        XCTAssertEqual(NumberInput.double(from: "1.234,5", locale: de), 1234.5)
+    }
+
+    func testIntegersRejectFractions() {
+        let us = Locale(identifier: "en_US")
+        XCTAssertEqual(NumberInput.int(from: "100,000", locale: us), 100_000)
+        XCTAssertNil(NumberInput.int(from: "1.5", locale: us))
+    }
+}
+
 final class EndpointTests: XCTestCase {
     private let base = URL(string: "https://erp.example.com")!
 
