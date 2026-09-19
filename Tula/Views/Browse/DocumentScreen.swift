@@ -476,7 +476,7 @@ private struct FormSectionContent: View {
     private func fieldStack(_ fields: [DocField]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(fields) { field in
-                FieldRow(field: field, document: document)
+                FieldRow(field: field, document: document, childMetas: childMetas)
             }
         }
     }
@@ -507,6 +507,8 @@ private struct FormSectionContent: View {
 private struct FieldRow: View {
     let field: DocField
     let document: Document
+    /// Resolves a Table MultiSelect's child DocType.
+    let childMetas: [String: DocTypeMeta]
 
     @Environment(AppModel.self) private var model
     @Environment(\.editSession) private var editSession
@@ -552,7 +554,9 @@ private struct FieldRow: View {
                 Text(field.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if let value = effectiveRaw[field.fieldname], !value.isNull {
+                if field.fieldtype == .tableMultiSelect {
+                    multiSelect(editing: nil)
+                } else if let value = effectiveRaw[field.fieldname], !value.isNull {
                     FieldValueView(
                         fieldname: field.fieldname,
                         fieldtype: field.fieldtype,
@@ -592,8 +596,26 @@ private struct FieldRow: View {
                             .foregroundStyle(.red)
                     }
                 }
-                EditableFieldView(field: field, session: session)
+                if field.fieldtype == .tableMultiSelect {
+                    multiSelect(editing: session)
+                } else {
+                    EditableFieldView(field: field, session: session)
+                }
             }
+        }
+    }
+
+    /// Desk's pill input for Table MultiSelect; blank when the child DocType
+    /// (or its Link field) didn't come with the bundle.
+    @ViewBuilder
+    private func multiSelect(editing session: EditSession?) -> some View {
+        if let childMeta = field.options.flatMap({ childMetas[$0] }),
+            let linkField = childMeta.multiSelectLinkField {
+            MultiSelectField(
+                field: field, childMeta: childMeta, linkField: linkField,
+                rows: effectiveRaw[field.fieldname]?.arrayValue ?? [], session: session)
+        } else {
+            Text(verbatim: " ")
         }
     }
 }

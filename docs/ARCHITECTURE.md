@@ -74,7 +74,8 @@ degrades gracefully instead of breaking on server customization.
 | `Select` | `Text`; status-like fields get a tinted capsule badge |
 | `Link` | **`NavigationLink`** routing to `.document(doctype: options, name: value)` — this single rule makes the whole data graph navigable. Hovering (macOS) or long-pressing (iOS) any document link shows a quick-view popover (`DocumentQuickView`): title, status, `in_preview` fields, and the first child table's line items — the voucher's core costs without leaving the report |
 | `Dynamic Link` | Same, doctype resolved from the sibling field named in `options` (GL's voucher_no → voucher_type), so report voucher columns navigate too |
-| `Table`, `Table MultiSelect` | Nested child-table section rendered by the same list machinery, using the child DocType's meta |
+| `Table` | Nested child-table section rendered by the same list machinery, using the child DocType's meta |
+| `Table MultiSelect` | Desk's pill input, flowing with the regular fields: one lozenge per row, keyed on the child DocType's first Link field — a document link when reading; ✕-removable with link type-ahead when editing |
 | `Text`, `Long Text`, `Code`, `JSON`, `Markdown Editor` | Scrollable `Text` (monospaced for code/JSON) |
 | `Text Editor`, `HTML Editor`, `HTML` | Own lightweight parsing — **not** `NSAttributedString(html:)`, which spins up WebKit. Fields carrying a server-rendered `<table>` (tax breakup et al) are parsed (`HTMLTable`) and rendered as a native grid; other content strips to text |
 | `Attach`, `Attach Image`, `Image` | Filename + `AsyncImage` for images (GET of `/files/...`) |

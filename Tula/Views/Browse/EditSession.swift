@@ -80,7 +80,7 @@ final class EditSession {
         case .data, .phone, .autocomplete, .int, .float, .currency, .percent,
             .check, .select, .link, .dynamicLink, .date, .datetime, .time,
             .smallText, .text, .longText, .code, .json, .markdown, .textEditor,
-            .htmlEditor, .attach, .attachImage:
+            .htmlEditor, .attach, .attachImage, .tableMultiSelect:
             return true
         default:
             return false

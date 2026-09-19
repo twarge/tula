@@ -108,6 +108,12 @@ public struct DocTypeMeta: Sendable, Hashable {
     /// Naming rule; "prompt" means the user supplies the ID at creation.
     public var autoname: String? { raw["autoname"]?.nonEmptyString }
 
+    /// For the child DocType behind a Table MultiSelect: the field holding
+    /// each row's value — Desk's rule, the first Link field.
+    public var multiSelectLinkField: DocField? {
+        fields.first { $0.fieldtype == .link }
+    }
+
     /// Desk's Connections tab: DocTypes linking back to this one.
     public var connectionLinks: [DocTypeLink] {
         raw["links"]?.arrayValue?.compactMap { entry in

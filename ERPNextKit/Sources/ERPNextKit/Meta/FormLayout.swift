@@ -20,7 +20,8 @@ public struct FormLayout: Sendable {
         public let id: Int
         public var label: String?
         public var collapsible: Bool
-        /// Regular fields, split into side-by-side columns.
+        /// Regular fields, split into side-by-side columns. Table MultiSelect
+        /// fields flow here too: Desk renders them as a pill input, not a grid.
         public var columns: [[DocField]]
         /// Child-table fields render full-width below the columns.
         public var tables: [DocField]
@@ -80,7 +81,7 @@ public struct FormLayout: Sendable {
                 currentSection.breakField = field
             case .columnBreak:
                 currentSection.columns.append([])
-            case .table, .tableMultiSelect:
+            case .table:
                 currentSection.tables.append(field)
             default:
                 guard field.fieldtype.isPresentable else { continue }

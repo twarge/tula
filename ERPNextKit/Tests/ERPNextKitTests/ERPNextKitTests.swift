@@ -118,6 +118,30 @@ final class MetaTests: XCTestCase {
         XCTAssertEqual(repeated.childMetas.count, 1)
     }
 
+    func testTableMultiSelectFlowsWithFields() throws {
+        // Desk renders Table MultiSelect as a pill input among the fields,
+        // keyed on the child DocType's first Link field.
+        let json = """
+            {"docs": [
+              {"name": "Cost Pool", "fields": [
+                {"fieldname": "title", "fieldtype": "Data", "label": "Title"},
+                {"fieldname": "accounts", "fieldtype": "Table MultiSelect",
+                 "label": "Accounts", "options": "Cost Pool Account"},
+                {"fieldname": "lines", "fieldtype": "Table", "options": "Cost Pool Line"}]},
+              {"name": "Cost Pool Account", "istable": 1, "fields": [
+                {"fieldname": "note", "fieldtype": "Data"},
+                {"fieldname": "account", "fieldtype": "Link", "options": "Account"}]},
+              {"name": "Cost Pool Line", "istable": 1, "fields": []}
+            ]}
+            """
+        let bundle = try MetaDecoder.bundle(from: Data(json.utf8))
+        let section = FormLayout.parse(bundle.metas[0]).tabs[0].sections[0]
+        XCTAssertEqual(section.columns.flatMap { $0 }.map(\.fieldname), ["title", "accounts"])
+        XCTAssertEqual(section.tables.map(\.fieldname), ["lines"])
+        XCTAssertEqual(
+            bundle.childMetas["Cost Pool Account"]?.multiSelectLinkField?.fieldname, "account")
+    }
+
     func testHiddenFieldsExcludedFromLayout() throws {
         let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8))
         let layout = FormLayout.parse(bundle.metas[0])

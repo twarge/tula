@@ -252,23 +252,29 @@ struct LinkSuggestField: View {
                 showSuggestions = false
                 return
             }
-            // Catalog hit: filter locally with no debounce and no request
-            // (the catalog revalidates itself in the background).
-            let options: [LinkOption]
-            if let local = model.cache.linkSuggestions(
-                doctype: doctype, query: text.wrappedValue, using: model.dataSource) {
-                options = local
-            } else {
-                try? await Task.sleep(for: .milliseconds(250))
-                if Task.isCancelled { return }
-                options =
-                    (try? await model.dataSource.searchLink(
-                        doctype: doctype, query: text.wrappedValue)) ?? []
-            }
+            guard
+                let options = await Self.options(
+                    doctype: doctype, query: text.wrappedValue, model: model)
+            else { return }
             // Typing the exact match needs no suggestion list.
             suggestions = options.filter { $0.value != text.wrappedValue }
             showSuggestions = !suggestions.isEmpty
         }
+    }
+
+    /// Type-ahead options for a link target, shared with the multiselect
+    /// editor. Catalog hit: filtered locally with no debounce and no request
+    /// (the catalog revalidates itself in the background); otherwise a
+    /// debounced `search_link`. Nil when cancelled mid-debounce.
+    static func options(doctype: String, query: String, model: AppModel) async
+        -> [LinkOption]? {
+        if let local = model.cache.linkSuggestions(
+            doctype: doctype, query: query, using: model.dataSource) {
+            return local
+        }
+        try? await Task.sleep(for: .milliseconds(250))
+        if Task.isCancelled { return nil }
+        return (try? await model.dataSource.searchLink(doctype: doctype, query: query)) ?? []
     }
 }
 
