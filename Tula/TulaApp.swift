@@ -59,7 +59,7 @@ struct TulaApp: App {
                 Button("Global Search…") {
                     model.omnibarRequested = true
                 }
-                .keyboardShortcut("k", modifiers: .command)
+                .keyboardShortcut("f", modifiers: .command)
             }
         }
         #if os(macOS)

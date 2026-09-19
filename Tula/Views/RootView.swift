@@ -94,21 +94,24 @@ struct RootView: View {
                 path.append(route)
             }
         }
-        #if !os(macOS)
-            .background(
-                // Hardware-keyboard shortcuts; on macOS the Go menu owns
-                // these.
-                Group {
+        .background(
+            // Shortcuts without a menu item: ⌘K stays as the omnibar's
+            // second spelling everywhere, and iOS hardware keyboards get
+            // the rest — on macOS the Go menu owns those.
+            Group {
+                Button("") { showingOmnibar = true }
+                    .keyboardShortcut("k", modifiers: .command)
+                #if !os(macOS)
                     Button("") { showingOmnibar = true }
-                        .keyboardShortcut("k", modifiers: .command)
+                        .keyboardShortcut("f", modifiers: .command)
                     Button("") { model.goBack() }
                         .keyboardShortcut("[", modifiers: .command)
                     Button("") { model.goForward() }
                         .keyboardShortcut("]", modifiers: .command)
-                }
-                .hidden()
-            )
-        #endif
+                #endif
+            }
+            .hidden()
+        )
         .onAppear {
             if ProcessInfo.processInfo.environment["TULA_OMNIBAR"] == "1" {
                 showingOmnibar = true

@@ -4,7 +4,9 @@ import SwiftUI
 /// The awesomebar: Tula's mirror of ERPNext's main search bar. One field,
 /// three suggestion categories as you type — navigation ("Purchase Invoice"
 /// list), reports, and full-text document hits from Frappe's global search.
-/// Reachable from the magnifying glass on every screen and ⌘K.
+/// Reachable from the magnifying glass on every screen and ⌘F (or ⌘K). The
+/// top hit is highlighted as Desk's awesomebar does; ↑/↓ move the highlight
+/// without leaving the field and Return opens it.
 struct OmnibarView: View {
     let onOpen: (Route) -> Void
 
@@ -16,6 +18,8 @@ struct OmnibarView: View {
     @State private var documentHits: [GlobalSearchHit] = []
     @State private var hasSearched = false
     @State private var searchError: String?
+    /// The arrow-key highlight; nil (or a vanished result) means the top hit.
+    @State private var selectedID: String?
     @FocusState private var focused: Bool
 
     private struct Suggestion: Identifiable {
@@ -24,6 +28,12 @@ struct OmnibarView: View {
         var systemImage: String
         var route: Route
         var id: String { "\(detail)|\(label)" }
+    }
+
+    /// One keyboard-navigable result, flattened across the three sections.
+    private struct Entry {
+        var id: String
+        var route: Route
     }
 
     var body: some View {
@@ -36,7 +46,9 @@ struct OmnibarView: View {
                     .font(.title3)
                     .focused($focused)
                     .autocorrectionDisabled()
-                    .onSubmit { openFirst() }
+                    .onSubmit { openHighlighted() }
+                    .onKeyPress(.downArrow) { moveHighlight(by: 1) }
+                    .onKeyPress(.upArrow) { moveHighlight(by: -1) }
                 Button {
                     dismiss()
                 } label: {
@@ -68,51 +80,29 @@ struct OmnibarView: View {
                     .padding(16)
                 Spacer(minLength: 0)
             } else {
-                List {
-                    if !navigationHits.isEmpty {
-                        Section("Go To") {
-                            ForEach(navigationHits) { row($0) }
+                ScrollViewReader { proxy in
+                    List {
+                        if !navigationHits.isEmpty {
+                            Section("Go To") {
+                                ForEach(navigationHits) { row($0) }
+                            }
                         }
-                    }
-                    if !reportHits.isEmpty {
-                        Section("Reports") {
-                            ForEach(reportHits) { row($0) }
+                        if !reportHits.isEmpty {
+                            Section("Reports") {
+                                ForEach(reportHits) { row($0) }
+                            }
                         }
-                    }
-                    if !documentHits.isEmpty {
-                        Section("Documents") {
-                            ForEach(documentHits) { hit in
-                                Button {
-                                    onOpen(.document(doctype: hit.doctype, name: hit.name))
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack(spacing: 6) {
-                                            Text(hit.name)
-                                                .fontWeight(.medium)
-                                            Text(hit.doctype)
-                                                .font(.caption)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 1)
-                                                .background(
-                                                    .quaternary.opacity(0.6), in: Capsule())
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        if let content = hit.content, !content.isEmpty {
-                                            Text(content)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(2)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
+                        if !documentHits.isEmpty {
+                            Section("Documents") {
+                                ForEach(documentHits) { documentRow($0) }
                             }
                         }
                     }
+                    .listStyle(.plain)
+                    .onChange(of: selectedID) { _, id in
+                        if let id { proxy.scrollTo(id) }
+                    }
                 }
-                .listStyle(.plain)
             }
         }
         #if os(macOS)
@@ -137,6 +127,7 @@ struct OmnibarView: View {
             reportCatalog = await model.cache.reportsCatalog(using: model.dataSource)
         }
         .task(id: query) {
+            selectedID = nil
             guard !query.isEmpty else {
                 documentHits = []
                 hasSearched = false
@@ -173,6 +164,42 @@ struct OmnibarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(highlight(suggestion.id))
+    }
+
+    private func documentRow(_ hit: GlobalSearchHit) -> some View {
+        Button {
+            onOpen(.document(doctype: hit.doctype, name: hit.name))
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(hit.name)
+                        .fontWeight(.medium)
+                    Text(hit.doctype)
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(.quaternary.opacity(0.6), in: Capsule())
+                        .foregroundStyle(.secondary)
+                }
+                if let content = hit.content, !content.isEmpty {
+                    Text(content)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(highlight(hit.id))
+    }
+
+    private func highlight(_ id: String) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(id == highlightedID ? Color.accentColor.opacity(0.2) : .clear)
+            .padding(.horizontal, 4)
     }
 
     /// Case-insensitive match, prefix hits ranked first — Desk's ordering.
@@ -211,19 +238,39 @@ struct OmnibarView: View {
         }
     }
 
-    private func openFirst() {
-        if let first = navigationHits.first {
-            onOpen(first.route)
-        } else if let firstReport = reportHits.first {
-            onOpen(firstReport.route)
-        } else if let hit = documentHits.first {
-            onOpen(.document(doctype: hit.doctype, name: hit.name))
+    /// Every result in display order.
+    private var entries: [Entry] {
+        (navigationHits + reportHits).map { Entry(id: $0.id, route: $0.route) }
+            + documentHits.map {
+                Entry(id: $0.id, route: .document(doctype: $0.doctype, name: $0.name))
+            }
+    }
+
+    private var highlightedID: String? {
+        let entries = entries
+        if let selectedID, entries.contains(where: { $0.id == selectedID }) {
+            return selectedID
+        }
+        return entries.first?.id
+    }
+
+    private func moveHighlight(by delta: Int) -> KeyPress.Result {
+        let entries = entries
+        guard !entries.isEmpty else { return .ignored }
+        let current = entries.firstIndex { $0.id == highlightedID } ?? 0
+        selectedID = entries[min(max(current + delta, 0), entries.count - 1)].id
+        return .handled
+    }
+
+    private func openHighlighted() {
+        if let entry = entries.first(where: { $0.id == highlightedID }) {
+            onOpen(entry.route)
         }
     }
 }
 
 /// The persistent entry point mirroring Desk's always-visible search bar:
-/// a magnifying glass on every screen's toolbar (plus ⌘K).
+/// a magnifying glass on every screen's toolbar (plus ⌘F/⌘K).
 struct SearchToolbar: ToolbarContent {
     @Environment(AppModel.self) private var model
 
@@ -234,7 +281,7 @@ struct SearchToolbar: ToolbarContent {
             } label: {
                 Label("Search", systemImage: "magnifyingglass")
             }
-            .help("Search documents, lists, and reports (⌘K)")
+            .help("Search documents, lists, and reports (⌘F)")
         }
     }
 }

@@ -22,7 +22,7 @@ final class AppModel {
     /// Session caches (metadata, screens, snapshots) — ARCHITECTURE.md §11.
     let cache = SessionCache()
 
-    /// Set by menu commands (⌘1–5, ⌘K); consumed by RootView.
+    /// Set by menu commands (⌘1–5, ⌘F); consumed by RootView.
     var pendingRoute: Route?
     var omnibarRequested = false
 

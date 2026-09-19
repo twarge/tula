@@ -398,7 +398,8 @@ missing is navigation and filters:
 
 Shipped: workspace number cards + dashboard charts (Swift Charts), native PDF export,
 precision-honoring formatting, between/timespan operators and server filter presets,
-macOS Go menu (⌘1–5/⌘0/⌘K), manual refresh busts the meta cache, and CI imported from
+macOS Go menu (⌘1–5/⌘0/⌘F, with ⌘K as the omnibar's alternate and ↑/↓/Return driving
+its results), manual refresh busts the meta cache, and CI imported from
 calcium: a test+build workflow plus an App Store Connect upload pipeline (cloud signing,
 version-train preflight) awaiting the five repository secrets. Deferred from this phase:
 prepared-report polling and multiple server profiles.
