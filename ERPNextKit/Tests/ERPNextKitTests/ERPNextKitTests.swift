@@ -97,6 +97,27 @@ final class MetaTests: XCTestCase {
             ["item_code", "item_name", "qty", "rate", "amount"])
     }
 
+    func testRepeatedChildDoctypeCollapses() throws {
+        // getdoctype appends one child meta per Table field, so two tables of
+        // the same child DocType repeat it in `docs`.
+        let json = """
+            {"docs": [
+              {"name": "Cost Pool", "fields": [
+                {"fieldname": "debit_accounts", "fieldtype": "Table", "options": "Cost Pool Account"},
+                {"fieldname": "credit_accounts", "fieldtype": "Table", "options": "Cost Pool Account"}]},
+              {"name": "Cost Pool Account", "istable": 1, "fields": []},
+              {"name": "Cost Pool Account", "istable": 1, "fields": []}
+            ]}
+            """
+        let bundle = try MetaDecoder.bundle(from: Data(json.utf8))
+        XCTAssertEqual(bundle.metas.map(\.name), ["Cost Pool", "Cost Pool Account"])
+        XCTAssertEqual(Array(bundle.childMetas.keys), ["Cost Pool Account"])
+
+        // Hand-built bundles may still repeat; the accessor must not trap.
+        let repeated = MetaBundle(metas: bundle.metas + [bundle.metas[1]])
+        XCTAssertEqual(repeated.childMetas.count, 1)
+    }
+
     func testHiddenFieldsExcludedFromLayout() throws {
         let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.accountMeta.utf8))
         let layout = FormLayout.parse(bundle.metas[0])

@@ -170,8 +170,7 @@ struct DocumentScreen: View {
                 throw ERPNextError(message: "No metadata for \(doctype)")
             }
             let document = try await model.dataSource.document(doctype, name: name)
-            let childMetas = Dictionary(
-                uniqueKeysWithValues: bundle.metas.dropFirst().map { ($0.name, $0) })
+            let childMetas = bundle.childMetas
             var periphery = await DocumentPeriphery.load(
                 doctype: doctype, name: name, meta: meta, document: document,
                 using: model.dataSource)

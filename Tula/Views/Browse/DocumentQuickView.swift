@@ -229,8 +229,7 @@ struct DocumentQuickView: View {
             }
             let document = try await model.dataSource.document(doctype, name: name)
             var loaded = Loaded(meta: meta, document: document)
-            let childMetas = Dictionary(
-                uniqueKeysWithValues: bundle.metas.dropFirst().map { ($0.name, $0) })
+            let childMetas = bundle.childMetas
             // The first populated child table is the document's substance
             // (invoice items, journal accounts, claimed expenses).
             for field in meta.fields where field.fieldtype == .table {

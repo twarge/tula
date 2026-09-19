@@ -203,6 +203,14 @@ public struct MetaBundle: Sendable {
         self.listSortDescending = listSortDescending
         self.userSettingsRaw = userSettingsRaw
     }
+
+    /// Child-table metas keyed by DocType name (everything after the first
+    /// entry). Tolerates repeats, which bundles built outside the decoder
+    /// may still carry.
+    public var childMetas: [String: DocTypeMeta] {
+        Dictionary(
+            metas.dropFirst().map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+    }
 }
 
 /// Decodes metadata API responses into DocType bundles.
@@ -221,8 +229,11 @@ public enum MetaDecoder {
         guard let docs, !docs.isEmpty else {
             throw ERPNextError(message: "Metadata response contained no DocTypes")
         }
+        // The server appends one child meta per Table field, so a DocType
+        // with two tables of the same child DocType repeats it — keep the first.
+        var seen = Set<String>()
         let metas = docs.compactMap { $0.objectValue.map(DocTypeMeta.init(raw:)) }
-            .filter { !$0.name.isEmpty }
+            .filter { !$0.name.isEmpty && seen.insert($0.name).inserted }
 
         var gridColumns: [String: [GridColumn]] = [:]
         var listSortBy: String?

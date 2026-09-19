@@ -126,8 +126,7 @@ struct NewDocumentSheet: View {
             }
             let loaded = Loaded(
                 meta: meta,
-                childMetas: Dictionary(
-                    uniqueKeysWithValues: bundle.metas.dropFirst().map { ($0.name, $0) }),
+                childMetas: bundle.childMetas,
                 gridColumns: bundle.gridColumns)
             var draft = seed.isEmpty ? Self.seedDraft(meta: meta) : seed
             draft["doctype"] = .string(doctype)

@@ -322,7 +322,8 @@ struct ListScreen: View {
         guard let session = model.writeSession else { return }
         let fieldnames = columnOverride ?? loaded.columns.map(\.fieldname)
         let labels = Dictionary(
-            uniqueKeysWithValues: columnCandidates(loaded).map { ($0.fieldname, $0.label) })
+            columnCandidates(loaded).map { ($0.fieldname, $0.label) },
+            uniquingKeysWith: { first, _ in first })
         let removed = loaded.columns.map(\.fieldname).filter { !fieldnames.contains($0) }
         Task {
             do {
