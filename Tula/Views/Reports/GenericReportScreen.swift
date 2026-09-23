@@ -146,6 +146,10 @@ struct GenericReportScreen: View {
             definitions = cached.value
         } else {
             let script = (try? await model.dataSource.reportScript(name: reportName)) ?? nil
+            // A cancelled fetch (the source generation moved while it was in
+            // flight) must not be cached as "no filters" — the restarted
+            // task fetches again.
+            if Task.isCancelled { return }
             definitions =
                 script.flatMap {
                     ReportFilterParser.definitions(
