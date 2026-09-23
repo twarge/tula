@@ -203,6 +203,19 @@ place ERPNext is not cleanly metadata-driven. Strategy:
 - v2: parse the `filters: [...]` array out of `query_report.get_script` (it's a JSON-ish
   literal) with a tolerant parser, falling back to v1 sets.
 
+**Cell links.** Desk expresses a cell's destination in per-report JS formatters, which we
+cannot run; `ReportDrillRules` re-declares the mappings for stock ERPNext reports. A
+report that resolves its links *server-side* needs neither: any row key `link_<fieldname>`
+in one of five shapes — `{doctype, name}`, `{list, filters}`, `{ledger: {account, project,
+from_date, to_date}}`, `{report, filters}`, `{filters}` (this report, re-seeded) — is decoded
+as `ReportLink` and navigates (`Route(link:)`; the last re-seeds the chips in place).
+Desk's `align`, `bold` and `message` are honored the same way. The DCAA module's *Incurred
+Cost Proposal Schedules* is the first report written to this contract.
+
+**Dashboard reports.** A DocType's form dashboard (`*_dashboard.py`) may list `reports`;
+Desk shows them under Connections and opens each with the document as the dashboard's
+`fieldname` filter. The Dashboard tab does the same (`DocumentPeriphery.reportLinks`).
+
 Reports run with `ignore_prepared_report=1`; prepared-report support (large installs) can be
 added later via its read-only status/fetch endpoints.
 

@@ -10,10 +10,14 @@ struct ListScreen: View {
     let doctype: String
     var initialFilters: [String: String] = [:]
 
-    init(doctype: String, initialFilters: [String: String] = [:]) {
+    init(
+        doctype: String, initialFilters: [String: String] = [:],
+        initialConditions: [FilterCondition] = []
+    ) {
         self.doctype = doctype
         self.initialFilters = initialFilters
         _quickFilters = State(initialValue: initialFilters)
+        _advancedFilters = State(initialValue: initialConditions)
     }
 
     @Environment(AppModel.self) private var model

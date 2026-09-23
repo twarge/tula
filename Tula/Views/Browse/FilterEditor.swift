@@ -33,6 +33,13 @@ struct FilterCondition: Identifiable, Hashable {
         case .timespan:
             guard !value.isEmpty else { return nil }
             return ListFilter(fieldname, "timespan", .string(value))
+        case .inList, .notInList:
+            // Comma-separated in the editor, a list on the wire.
+            let items = value.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }.filter { !$0.isEmpty }
+            guard !items.isEmpty else { return nil }
+            return ListFilter(fieldname, op.rawValue, .array(items.map { .string($0) }))
         default:
             guard !value.isEmpty else { return nil }
             return ListFilter(fieldname, op.rawValue, .string(value))
@@ -51,6 +58,8 @@ enum FilterOperator: String, CaseIterable, Identifiable {
     case lessOrEqual = "<="
     case between = "between"
     case timespan = "timespan"
+    case inList = "in"
+    case notInList = "not in"
     case isSet = "is set"
     case isNotSet = "is not set"
 
@@ -68,6 +77,8 @@ enum FilterOperator: String, CaseIterable, Identifiable {
         case .lessOrEqual: return "≤"
         case .between: return "Between"
         case .timespan: return "Timespan"
+        case .inList: return "In"
+        case .notInList: return "Not In"
         case .isSet: return "Is Set"
         case .isNotSet: return "Is Not Set"
         }
@@ -84,7 +95,7 @@ enum FilterOperator: String, CaseIterable, Identifiable {
     static func operators(for fieldtype: FieldType) -> [FilterOperator] {
         switch fieldtype {
         case .select:
-            return [.equals, .notEquals, .isSet, .isNotSet]
+            return [.equals, .notEquals, .inList, .notInList, .isSet, .isNotSet]
         case .check:
             return [.equals]
         case .int, .float, .currency, .percent:
@@ -98,10 +109,43 @@ enum FilterOperator: String, CaseIterable, Identifiable {
                 .greaterOrEqual, .lessOrEqual, .isSet, .isNotSet,
             ]
         case .link, .dynamicLink:
-            return [.equals, .notEquals, .like, .notLike, .isSet, .isNotSet]
+            return [.equals, .notEquals, .inList, .notInList, .like, .notLike, .isSet, .isNotSet]
         default:
-            return [.like, .notLike, .equals, .notEquals, .isSet, .isNotSet]
+            return [.like, .notLike, .equals, .notEquals, .inList, .notInList, .isSet, .isNotSet]
         }
+    }
+}
+
+extension FilterCondition {
+    /// An editor condition from a wire filter (a report link's list scope),
+    /// so seeded conditions show as removable chips like any other.
+    init?(listFilter: ListFilter) {
+        func text(_ value: FrappeValue) -> String? {
+            value.nonEmptyString ?? value.intValue.map(String.init)
+                ?? value.doubleValue.map { String($0) }
+        }
+        let op: FilterOperator
+        var value = ""
+        switch listFilter.op {
+        case "is":
+            guard let which = listFilter.value.nonEmptyString else { return nil }
+            op = which == "set" ? .isSet : .isNotSet
+        case "in", "not in":
+            op = listFilter.op == "in" ? .inList : .notInList
+            value = (listFilter.value.arrayValue ?? []).compactMap(text).joined(separator: ", ")
+        case "between":
+            op = .between
+            value = (listFilter.value.arrayValue ?? []).compactMap(text).joined(separator: "|")
+        case "like", "not like":
+            op = listFilter.op == "like" ? .like : .notLike
+            value = (text(listFilter.value) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "%"))
+        default:
+            guard let known = FilterOperator(rawValue: listFilter.op) else { return nil }
+            op = known
+            value = text(listFilter.value) ?? ""
+        }
+        guard !op.takesValue || !value.isEmpty else { return nil }
+        self.init(fieldname: listFilter.fieldname, op: op, value: value)
     }
 }
 

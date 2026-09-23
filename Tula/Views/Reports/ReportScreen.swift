@@ -427,6 +427,32 @@ struct GeneralLedgerAdvancedFilters: View {
                     LinkSuggestField(
                         doctype: "Project", text: optionalBinding($state.project))
                 }
+                if !state.additionalAccounts.isEmpty || !state.additionalProjects.isEmpty {
+                    // A drill link scoped to several accounts/projects: the bar
+                    // edits the first, the rest are listed here so nothing is
+                    // pinned out of sight.
+                    labeled("Also In Scope") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if !state.additionalAccounts.isEmpty {
+                                Text(
+                                    "\(state.additionalAccounts.count) more account\(state.additionalAccounts.count == 1 ? "" : "s"): "
+                                        + state.additionalAccounts.joined(separator: ", "))
+                            }
+                            if !state.additionalProjects.isEmpty {
+                                Text(
+                                    "\(state.additionalProjects.count) more project\(state.additionalProjects.count == 1 ? "" : "s"): "
+                                        + state.additionalProjects.joined(separator: ", "))
+                            }
+                            Button("Clear") {
+                                state.additionalAccounts = []
+                                state.additionalProjects = []
+                            }
+                            .controlSize(.small)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
                 labeled("Cost Center") {
                     LinkSuggestField(
                         doctype: "Cost Center", text: optionalBinding($state.costCenter))

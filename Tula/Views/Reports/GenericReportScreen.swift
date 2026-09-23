@@ -61,8 +61,22 @@ struct GenericReportScreen: View {
         case .loaded(let result):
             ReportResultView(
                 result: result, fallbackCurrency: model.fallbackCurrencyCode,
-                drillRoute: drillRoute(for:column:))
+                drillRoute: drillRoute(for:column:), cellAction: cellAction(for:))
         }
+    }
+
+    /// Server-declared cell sources (`link_<fieldname>` on the row): a
+    /// same-report link re-seeds the chips in place; everything else
+    /// navigates.
+    private func cellAction(for link: ReportLink) -> ReportCellAction? {
+        if case .filters(let options) = link {
+            return .setFilters {
+                for (key, value) in options {
+                    if let seed = Self.seedString(value) { values[key] = seed }
+                }
+            }
+        }
+        return Route(link: link).map { .navigate($0) }
     }
 
     /// Declarative drill-downs (ReportDrillRules): AR/AP Summary → detail,
@@ -154,7 +168,8 @@ struct GenericReportScreen: View {
                 script.flatMap {
                     ReportFilterParser.definitions(
                         reportName: reportName, script: $0,
-                        defaultCompany: model.filterState.company?.name)
+                        defaultCompany: model.filterState.company?.name,
+                        defaultFiscalYear: model.filterState.fiscalYear?.name)
                 } ?? []
             model.cache.setScreen(
                 "reportdefs|\(model.sourceGeneration)|\(reportName)", definitions)
@@ -247,9 +262,10 @@ struct GenericFilterBar: View {
     private func chip(for definition: ReportFilterDefinition) -> some View {
         switch definition.fieldtype {
         case .select where !definition.selectOptions.isEmpty:
+            // A required Select has no "Any" — the report can't run without it.
             SelectFilterChip(
                 label: definition.label, choices: definition.selectOptions,
-                value: $values[definition.fieldname])
+                value: $values[definition.fieldname], allowsAny: !definition.required)
         case .check:
             SelectFilterChip(
                 label: definition.label, choices: ["1", "0"],

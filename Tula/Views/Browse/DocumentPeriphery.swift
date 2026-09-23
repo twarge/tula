@@ -21,6 +21,16 @@ struct DocumentPeriphery: Sendable {
         var id: String { "\(group ?? "")|\(doctype)" }
     }
 
+    /// A report the DocType's form dashboard hangs on the document (Desk
+    /// lists these under Connections and opens each with the document as
+    /// `fieldname`).
+    struct ReportLink: Identifiable, Sendable {
+        var report: String
+        var group: String?
+        var fieldname: String?
+        var id: String { "\(group ?? "")|\(report)" }
+    }
+
     /// One party stat from `__onload.dashboard_info` (Annual Billing…).
     struct Stat: Identifiable, Sendable {
         var label: String
@@ -62,6 +72,7 @@ struct DocumentPeriphery: Sendable {
     var shares: [String] = []
     var likedBy: [String] = []
     var connections: [Connection] = []
+    var reportLinks: [ReportLink] = []
     var stats: [Stat] = []
     var attachments: [Attachment] = []
     var comments: [Comment] = []
@@ -206,6 +217,14 @@ struct DocumentPeriphery: Sendable {
                         continue
                     }
                     periphery.connections.append(connection)
+                }
+            }
+            for group in spec.reports {
+                for report in group.doctypes {
+                    periphery.reportLinks.append(
+                        ReportLink(
+                            report: report, group: group.label.isEmpty ? nil : group.label,
+                            fieldname: spec.reportFieldname(for: report)))
                 }
             }
         } else {
@@ -1123,6 +1142,8 @@ struct PeripheryTrailingSections: View {
 /// three-column dashboard.
 struct DashboardTabView: View {
     let periphery: DocumentPeriphery
+    /// The document the dashboard belongs to — what its reports filter on.
+    let documentName: String
 
     @Environment(AppModel.self) private var model
 
@@ -1177,7 +1198,63 @@ struct DashboardTabView: View {
                     Text("Connections").font(.headline).padding(.bottom, 2)
                 }
             }
+            if !periphery.reportLinks.isEmpty {
+                GroupBox {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.adaptive(minimum: 220), alignment: .topLeading)
+                        ],
+                        alignment: .leading, spacing: 20
+                    ) {
+                        ForEach(groupedReportLinks, id: \.title) { group in
+                            VStack(alignment: .leading, spacing: 6) {
+                                if let title = group.title.isEmpty ? nil : group.title {
+                                    Text(title)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                ForEach(group.links) { link in
+                                    NavigationLink(value: reportRoute(link)) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "chart.bar.doc.horizontal")
+                                                .foregroundStyle(.tint)
+                                            Text(link.report)
+                                            Spacer()
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    Text("Reports").font(.headline).padding(.bottom, 2)
+                }
+            }
         }
+    }
+
+    /// Desk's `open_report`: the report seeded with this document in the
+    /// dashboard's fieldname.
+    private func reportRoute(_ link: DocumentPeriphery.ReportLink) -> Route {
+        .queryReport(
+            name: link.report,
+            extra: link.fieldname.map { [$0: .string(documentName)] } ?? [:])
+    }
+
+    private var groupedReportLinks:
+        [(title: String, links: [DocumentPeriphery.ReportLink])] {
+        var order: [String] = []
+        var groups: [String: [DocumentPeriphery.ReportLink]] = [:]
+        for link in periphery.reportLinks {
+            let key = link.group ?? ""
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(link)
+        }
+        return order.map { ($0, groups[$0] ?? []) }
     }
 
     private func statColor(_ stat: DocumentPeriphery.Stat) -> Color {

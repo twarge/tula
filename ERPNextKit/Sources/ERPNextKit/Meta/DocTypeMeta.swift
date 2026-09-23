@@ -301,6 +301,10 @@ public struct DashboardSpec: Sendable, Hashable {
     /// on the document ([child table field, link field] or [link field]).
     public var internalLinks: [String: [String]]
     public var transactions: [Group]
+    /// Report groups (`reports: [{label, items}]` in the module's
+    /// `*_dashboard.py`): Desk lists them under Connections and opens each
+    /// with the document as the `fieldname` filter.
+    public var reports: [Group]
 
     init?(raw: FrappeValue?) {
         guard let dict = raw?.objectValue else { return nil }
@@ -316,13 +320,23 @@ public struct DashboardSpec: Sendable, Hashable {
             }
             return value.nonEmptyString.map { [$0] }
         }
-        transactions = (dict["transactions"]?.arrayValue ?? []).compactMap { entry in
-            guard let dict = entry.objectValue else { return nil }
-            let doctypes = (dict["items"]?.arrayValue ?? []).compactMap(\.nonEmptyString)
-            guard !doctypes.isEmpty else { return nil }
-            return Group(label: dict["label"]?.nonEmptyString ?? "", doctypes: doctypes)
+        func groups(_ key: String) -> [Group] {
+            (dict[key]?.arrayValue ?? []).compactMap { entry in
+                guard let dict = entry.objectValue else { return nil }
+                let items = (dict["items"]?.arrayValue ?? []).compactMap(\.nonEmptyString)
+                guard !items.isEmpty else { return nil }
+                return Group(label: dict["label"]?.nonEmptyString ?? "", doctypes: items)
+            }
         }
-        if transactions.isEmpty { return nil }
+        transactions = groups("transactions")
+        reports = groups("reports")
+        if transactions.isEmpty && reports.isEmpty { return nil }
+    }
+
+    /// The filter a linked report takes this document's name in (Desk's
+    /// `open_report`: the per-report override, else the dashboard's fieldname).
+    public func reportFieldname(for report: String) -> String? {
+        nonStandardFieldnames[report] ?? fieldname
     }
 
     /// Equality filters selecting documents of `linkedDoctype` that refer to

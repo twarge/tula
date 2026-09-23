@@ -11,8 +11,15 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
     public var width: Double
     public var hidden: Bool
     public var precision: Int?
+    /// Desk's explicit column alignment (script reports set it on Data
+    /// columns holding pre-formatted numbers).
+    public var align: ReportColumnAlign?
 
     public var id: String { fieldname }
+
+    /// Numbers, and anything the report aligns right, sit against the
+    /// trailing edge.
+    public var alignsTrailing: Bool { fieldtype.isNumeric || align == .right }
 
     init?(value: FrappeValue, index: Int) {
         if let dict = value.objectValue {
@@ -23,6 +30,7 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
             width = dict["width"]?.doubleValue ?? 120
             hidden = dict["hidden"]?.boolValue ?? false
             precision = dict["precision"]?.intValue
+            align = dict["align"]?.nonEmptyString.flatMap { ReportColumnAlign(rawValue: $0) }
         } else if let string = value.stringValue {
             // "Label:Fieldtype/Options:Width", with every part after Label optional.
             let parts = string.split(separator: ":", omittingEmptySubsequences: false)
@@ -40,6 +48,7 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
             width = parts.count > 2 ? Double(parts[2]) ?? 120 : 120
             hidden = false
             precision = nil
+            align = nil
         } else {
             return nil
         }
@@ -54,6 +63,10 @@ public struct ReportColumn: Sendable, Hashable, Identifiable, Codable {
             }
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
     }
+}
+
+public enum ReportColumnAlign: String, Sendable, Hashable, Codable {
+    case left, right, center
 }
 
 /// One report row, keyed by column fieldname. Array rows (legacy query
@@ -73,6 +86,16 @@ public struct ReportRow: Sendable, Hashable, Identifiable, Codable {
 
     /// Row-level currency hint used by financial statements.
     public var currency: String? { values["currency"]?.nonEmptyString }
+
+    /// Emphasis the report asks for (`bold: 1` on total rows), beyond the
+    /// group-row heuristic.
+    public var isBold: Bool { values["bold"]?.boolValue ?? false }
+
+    /// The declared source of this row's cell in `column`, when the report
+    /// ships one as `link_<fieldname>` (see `ReportLink`).
+    public func link(for column: ReportColumn) -> ReportLink? {
+        ReportLink(value: values["link_\(column.fieldname)"])
+    }
 
     /// Spacer rows ({} or all-null) separate report sections.
     public var isBlank: Bool {
@@ -140,6 +163,9 @@ public struct ReportResult: Sendable, Hashable, Codable {
     public var rows: [ReportRow]
     public var summary: [ReportSummaryItem]
     public var chart: ReportChart?
+    /// The report's `message` (Desk shows it above the grid as HTML), as
+    /// plain lines: a title, notes, review warnings.
+    public var message: String? = nil
 
     public var visibleColumns: [ReportColumn] { columns.filter { !$0.hidden } }
 
@@ -188,7 +214,23 @@ public struct ReportResult: Sendable, Hashable, Codable {
 
         return ReportResult(
             columns: columns, rows: rows, summary: summary,
-            chart: ReportChart(value: payload["chart"]))
+            chart: ReportChart(value: payload["chart"]),
+            message: payload["message"]?.nonEmptyString.flatMap(Self.plainText(fromHTML:)))
+    }
+
+    /// Block-level tags become line breaks, list items bullets, the rest is
+    /// stripped and entity-decoded; nil when nothing readable remains.
+    static func plainText(fromHTML html: String) -> String? {
+        var text = html.replacingOccurrences(
+            of: "<br\\s*/?>|</?(h[1-6]|p|div|ul|ol|tr|table)[^>]*>|</li>", with: "\n",
+            options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(
+            of: "<li[^>]*>", with: "\n• ", options: [.regularExpression, .caseInsensitive])
+        let lines = text.strippingSimpleHTML()
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }
 

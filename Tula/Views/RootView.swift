@@ -150,6 +150,10 @@ struct RouteView: View {
                 TreeScreen(doctype: doctype)
             case .linkedList(let doctype, let filters):
                 ListScreen(doctype: doctype, initialFilters: filters)
+            case .filteredList(let doctype, let conditions):
+                ListScreen(
+                    doctype: doctype,
+                    initialConditions: conditions.compactMap(FilterCondition.init(listFilter:)))
             case .document(let doctype, let name):
                 DocumentScreen(doctype: doctype, name: name)
             }

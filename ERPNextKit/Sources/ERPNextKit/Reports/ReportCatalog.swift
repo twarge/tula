@@ -53,7 +53,8 @@ public struct ReportFilterDefinition: Sendable, Hashable, Identifiable {
 /// fails evaluates to nil and the caller falls back gracefully.
 public enum ReportFilterParser {
     public static func definitions(
-        reportName: String, script: String, defaultCompany: String? = nil
+        reportName: String, script: String, defaultCompany: String? = nil,
+        defaultFiscalYear: String? = nil
     ) -> [ReportFilterDefinition]? {
         guard let context = JSContext() else { return nil }
         context.exceptionHandler = { context, exception in
@@ -61,10 +62,12 @@ public enum ReportFilterParser {
         }
 
         guard let nameJSON = jsonLiteral(reportName),
-            let companyJSON = jsonLiteral(defaultCompany ?? "")
+            let companyJSON = jsonLiteral(defaultCompany ?? ""),
+            let fiscalYearJSON = jsonLiteral(defaultFiscalYear ?? "")
         else { return nil }
 
-        context.evaluateScript(stubEnvironment(companyJSON: companyJSON))
+        context.evaluateScript(
+            stubEnvironment(companyJSON: companyJSON, fiscalYearJSON: fiscalYearJSON))
         context.exception = nil
         context.evaluateScript("try { \(script) \n} catch (e) {}")
 
@@ -125,8 +128,9 @@ public enum ReportFilterParser {
     }
 
     /// The minimal Desk surface report scripts touch at filter-definition
-    /// time. Date helpers return real dates so defaults come out usable.
-    private static func stubEnvironment(companyJSON: String) -> String {
+    /// time. Date helpers return real dates so defaults come out usable; the
+    /// session company and fiscal year are the app's current ones.
+    private static func stubEnvironment(companyJSON: String, fiscalYearJSON: String) -> String {
         """
         function __(s) { return s; }
         function _pad(n) { return (n < 10 ? "0" : "") + n; }
@@ -136,6 +140,7 @@ public enum ReportFilterParser {
         var frappe = {
             query_reports: {},
             _company: \(companyJSON),
+            _fiscalYear: \(fiscalYearJSON),
             provide: function(namespace) {
                 var parts = namespace.split(".");
                 var obj = globalThis;
@@ -145,17 +150,18 @@ public enum ReportFilterParser {
                 }
                 return obj;
             },
-            defaults: {
-                get_user_default: function(key) {
-                    return key === "Company" || key === "company" ? frappe._company : "";
-                },
-                get_default: function(key) {
-                    return key === "Company" || key === "company" ? frappe._company : "";
-                }
+            _default: function(key) {
+                if (key === "Company" || key === "company") { return frappe._company; }
+                if (key === "fiscal_year" || key === "Fiscal Year") { return frappe._fiscalYear; }
+                return "";
             },
-            user_defaults: { company: \(companyJSON) },
-            sys_defaults: { company: \(companyJSON), fiscal_year: "" },
-            boot: { sysdefaults: { company: \(companyJSON), fiscal_year: "" } },
+            defaults: {
+                get_user_default: function(key) { return frappe._default(key); },
+                get_default: function(key) { return frappe._default(key); }
+            },
+            user_defaults: { company: \(companyJSON), fiscal_year: \(fiscalYearJSON) },
+            sys_defaults: { company: \(companyJSON), fiscal_year: \(fiscalYearJSON) },
+            boot: { sysdefaults: { company: \(companyJSON), fiscal_year: \(fiscalYearJSON) } },
             datetime: {
                 get_today: function() { return _fmt(new Date()); },
                 nowdate: function() { return _fmt(new Date()); },

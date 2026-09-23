@@ -604,6 +604,20 @@ final class WriteClientTests: XCTestCase {
         XCTAssertEqual(
             party?.filters(linking: "Payment Entry", to: "ACME"),
             ["party": "ACME", "party_type": "Supplier"])
+
+        // Report groups alone make a dashboard; each opens with the document
+        // as the dashboard's fieldname (or the report's override).
+        let proposalDashboard = """
+            {"fieldname": "proposal", "transactions": [],
+             "non_standard_fieldnames": {"Other Report": "icp"},
+             "reports": [{"label": "Schedules", "items": ["Incurred Cost Proposal Schedules"]}]}
+            """
+        let proposal = try XCTUnwrap(
+            DashboardSpec(raw: try FrappeValue.decode(from: Data(proposalDashboard.utf8))))
+        XCTAssertEqual(proposal.reports.map(\.label), ["Schedules"])
+        XCTAssertEqual(proposal.reports[0].doctypes, ["Incurred Cost Proposal Schedules"])
+        XCTAssertEqual(proposal.reportFieldname(for: "Incurred Cost Proposal Schedules"), "proposal")
+        XCTAssertEqual(proposal.reportFieldname(for: "Other Report"), "icp")
     }
 
     func testUserSettingsSortMerge() throws {
@@ -766,6 +780,20 @@ final class GeneralLedgerFilterStateTests: XCTestCase {
             includeDefaultBookEntries: false)
         XCTAssertEqual(GeneralLedgerFilterState(routeOptions: state.routeOptions), state)
         XCTAssertEqual(GeneralLedgerFilterState(routeOptions: [:]), GeneralLedgerFilterState())
+
+        // Several accounts/projects: the first is the edited one, the rest
+        // ride along and round-trip as one MultiSelectList each.
+        let wide = GeneralLedgerFilterState(
+            account: "5000 - Direct Costs - TL", project: "P1",
+            additionalAccounts: ["5100 - Other - TL"], additionalProjects: ["P2", "P3"])
+        XCTAssertEqual(
+            wide.routeOptions["account"],
+            .array([.string("5000 - Direct Costs - TL"), .string("5100 - Other - TL")]))
+        XCTAssertEqual(GeneralLedgerFilterState(routeOptions: wide.routeOptions), wide)
+        XCTAssertTrue(wide.hasAdvancedFilters)
+        var filters: [String: FrappeValue] = [:]
+        wide.apply(to: &filters)
+        XCTAssertEqual(filters["project"], .array([.string("P1"), .string("P2"), .string("P3")]))
     }
 
     func testApplySendsDeskWireShapes() {
@@ -942,5 +970,118 @@ final class ReportDrillRulesTests: XCTestCase {
         XCTAssertEqual(definitions.count, 2)
         XCTAssertFalse(definitions[0].isMultiSelect)
         XCTAssertTrue(definitions[1].isMultiSelect)
+    }
+}
+
+final class ReportLinkTests: XCTestCase {
+    private func link(_ json: String) throws -> ReportLink? {
+        ReportLink(value: try FrappeValue.decode(from: Data(json.utf8)))
+    }
+
+    func testFiveShapesDecode() throws {
+        XCTAssertEqual(
+            try link(#"{"doctype": "Account", "name": "7010 - O/H Rent - TL"}"#),
+            .document(doctype: "Account", name: "7010 - O/H Rent - TL"))
+        // List filters: bare values are equality, [op, value] carries its operator.
+        XCTAssertEqual(
+            try link(#"{"list": "Sales Invoice", "filters": {"project": "P1", "docstatus": 1, "posting_date": ["<=", "2025-12-31"]}}"#),
+            .list(
+                doctype: "Sales Invoice",
+                filters: [
+                    ListFilter("docstatus", "=", .int(1)),
+                    ListFilter("posting_date", "<=", .string("2025-12-31")),
+                    ListFilter("project", "=", .string("P1")),
+                ]))
+        XCTAssertEqual(
+            try link(#"{"list": "Purchase Order", "filters": {"name": ["in", ["PO1", "PO2"]]}}"#),
+            .list(doctype: "Purchase Order", filters: [ListFilter("name", "in", .array([.string("PO1"), .string("PO2")]))]))
+        let ledger = try XCTUnwrap(
+            try link(#"{"ledger": {"account": ["5000 - Direct Costs - TL"], "project": ["P1", "P2"], "from_date": "2025-01-01", "to_date": "2025-12-31"}}"#))
+        guard case .ledger(let scope) = ledger else { return XCTFail("not a ledger link") }
+        XCTAssertEqual(scope.accounts, ["5000 - Direct Costs - TL"])
+        XCTAssertEqual(scope.projects, ["P1", "P2"])
+        XCTAssertEqual(scope.filterState.account, "5000 - Direct Costs - TL")
+        XCTAssertEqual(scope.filterState.additionalProjects, ["P2"])
+        XCTAssertEqual(scope.filterState.toDate, "2025-12-31")
+        // A bare string account is one entry.
+        guard case .ledger(let single) = try XCTUnwrap(try link(#"{"ledger": {"account": "A", "project": "P"}}"#))
+        else { return XCTFail("not a ledger link") }
+        XCTAssertEqual(single.accounts, ["A"])
+        XCTAssertEqual(single.projects, ["P"])
+        XCTAssertEqual(
+            try link(#"{"report": "Cost Allocation Validation", "filters": {"cost_pool": "Overhead", "only_violations": 0}}"#),
+            .report(name: "Cost Allocation Validation", filters: ["cost_pool": .string("Overhead"), "only_violations": .int(0)]))
+        XCTAssertEqual(
+            try link(#"{"filters": {"schedule": "H · Direct Costs by Contract/Subcontract"}}"#),
+            .filters(["schedule": .string("H · Direct Costs by Contract/Subcontract")]))
+        XCTAssertNil(try link(#"{"unknown": 1}"#))
+        XCTAssertNil(ReportLink(value: nil))
+    }
+
+    func testRowsCarryLinksAlignmentAndEmphasis() throws {
+        let payload = """
+            {"message": {
+              "columns": [
+                {"fieldname": "c0", "label": "Account", "fieldtype": "Data", "width": 360},
+                {"fieldname": "c1", "label": "Claimed", "fieldtype": "Data", "width": 140, "align": "right"},
+                {"fieldname": "c2", "label": "Base", "fieldtype": "Currency", "options": "currency"}],
+              "result": [
+                {"c0": "Overhead", "c1": "$ 1.00", "c2": 1, "indent": 0, "bold": 1,
+                 "link_c0": {"doctype": "Cost Pool", "name": "Overhead"},
+                 "link_c1": {"filters": {"schedule": "C · Overhead"}}},
+                {"c0": "Rent", "c1": "$ 2.00", "c2": 2, "indent": 1}]}}
+            """
+        let result = try ReportResult.decode(from: Data(payload.utf8))
+        XCTAssertEqual(result.columns[1].align, .right)
+        XCTAssertTrue(result.columns[1].alignsTrailing)   // Data, but aligned right by the report
+        XCTAssertTrue(result.columns[2].alignsTrailing)   // numeric fieldtype
+        XCTAssertFalse(result.columns[0].alignsTrailing)
+        XCTAssertTrue(result.rows[0].isBold)
+        XCTAssertFalse(result.rows[1].isBold)
+        XCTAssertEqual(
+            result.rows[0].link(for: result.columns[0]), .document(doctype: "Cost Pool", name: "Overhead"))
+        XCTAssertEqual(result.rows[0].link(for: result.columns[1]), .filters(["schedule": .string("C · Overhead")]))
+        XCTAssertNil(result.rows[1].link(for: result.columns[0]))
+    }
+
+    func testMessageArrivesAsPlainText() throws {
+        let payload = """
+            {"message": {
+              "columns": [{"fieldname": "c0", "label": "Account", "fieldtype": "Data"}],
+              "result": [],
+              "message": "<h4>Schedule C — Overhead</h4><br>Wind Power LLC · Fiscal Year Ending 12-31-2026<br><div class='text-warning'><b>Review</b><ul><li>Contract projects without a Contract Number: NPSL</li><li>Second &amp; last: Schedule I&apos;s</li></ul></div>"}}
+            """
+        let result = try ReportResult.decode(from: Data(payload.utf8))
+        XCTAssertEqual(
+            result.message,
+            "Schedule C — Overhead\nWind Power LLC · Fiscal Year Ending 12-31-2026\nReview\n• Contract projects without a Contract Number: NPSL\n• Second & last: Schedule I's")
+        XCTAssertNil(try ReportResult.decode(from: Data(#"{"message": {"columns": ["A"], "result": []}}"#.utf8)).message)
+    }
+}
+
+final class ReportFilterDefaultsTests: XCTestCase {
+    func testFiscalYearDefaultFollowsTheApp() throws {
+        let script = #"""
+            frappe.query_reports["Incurred Cost Proposal Schedules"] = {
+                filters: [
+                    {fieldname: "company", fieldtype: "Link", options: "Company",
+                     default: frappe.defaults.get_user_default("Company")},
+                    {fieldname: "fiscal_year", fieldtype: "Link", options: "Fiscal Year",
+                     default: frappe.defaults.get_user_default("fiscal_year")},
+                    {fieldname: "year2", fieldtype: "Link", options: "Fiscal Year",
+                     default: frappe.sys_defaults.fiscal_year},
+                ]
+            };
+            """#
+        let definitions = try XCTUnwrap(
+            ReportFilterParser.definitions(
+                reportName: "Incurred Cost Proposal Schedules", script: script,
+                defaultCompany: "Wind Power LLC", defaultFiscalYear: "2026"))
+        XCTAssertEqual(definitions.map(\.defaultValue), ["Wind Power LLC", "2026", "2026"])
+        // Without one, the default stays unset rather than a bogus string.
+        let bare = try XCTUnwrap(
+            ReportFilterParser.definitions(
+                reportName: "Incurred Cost Proposal Schedules", script: script, defaultCompany: nil))
+        XCTAssertNil(bare[1].defaultValue)
     }
 }

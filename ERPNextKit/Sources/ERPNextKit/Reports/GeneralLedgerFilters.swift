@@ -17,6 +17,12 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
     /// Desk's grouping mode, without the "Group by"/"Categorize by" verb —
     /// one of `Self.categorizeChoices`.
     public var categorizeBy: String
+    /// Further accounts/projects in the same MultiSelectList filters: drill
+    /// links can name several (a pool's parent groups, every contract
+    /// project). The bar edits the first; these ride along, shown in the
+    /// advanced popover.
+    public var additionalAccounts: [String]
+    public var additionalProjects: [String]
 
     public static let defaultCategorizeBy = "Voucher (Consolidated)"
     public static let categorizeChoices = [
@@ -27,7 +33,8 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         fromDate: String? = nil, toDate: String? = nil, account: String? = nil,
         project: String? = nil, costCenter: String? = nil, financeBook: String? = nil,
         presentationCurrency: String? = nil, includeDefaultBookEntries: Bool = true,
-        categorizeBy: String = GeneralLedgerFilterState.defaultCategorizeBy
+        categorizeBy: String = GeneralLedgerFilterState.defaultCategorizeBy,
+        additionalAccounts: [String] = [], additionalProjects: [String] = []
     ) {
         self.fromDate = fromDate
         self.toDate = toDate
@@ -38,26 +45,36 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         self.presentationCurrency = presentationCurrency
         self.includeDefaultBookEntries = includeDefaultBookEntries
         self.categorizeBy = categorizeBy
+        self.additionalAccounts = additionalAccounts
+        self.additionalProjects = additionalProjects
     }
 
     /// Decodes a drill-down route's options. Scoping filters accept either a
     /// bare string or Desk's one-element MultiSelectList array.
     public init(routeOptions: [String: FrappeValue]) {
-        func single(_ name: String) -> String? {
-            routeOptions[name]?.arrayValue?.first?.nonEmptyString
-                ?? routeOptions[name]?.nonEmptyString
+        func list(_ name: String) -> [String] {
+            routeOptions[name]?.arrayValue?.compactMap(\.nonEmptyString)
+                ?? routeOptions[name]?.nonEmptyString.map { [$0] } ?? []
         }
+        let accounts = list("account")
+        let projects = list("project")
         self.init(
             fromDate: routeOptions["from_date"]?.nonEmptyString,
             toDate: routeOptions["to_date"]?.nonEmptyString,
-            account: single("account"),
-            project: single("project"),
-            costCenter: single("cost_center"),
+            account: accounts.first,
+            project: projects.first,
+            costCenter: list("cost_center").first,
             financeBook: routeOptions["finance_book"]?.nonEmptyString,
             presentationCurrency: routeOptions["presentation_currency"]?.nonEmptyString,
             includeDefaultBookEntries: routeOptions["include_default_book_entries"]?.boolValue
-                ?? true)
+                ?? true,
+            additionalAccounts: Array(accounts.dropFirst()),
+            additionalProjects: Array(projects.dropFirst()))
     }
+
+    /// Every account / project in scope, the edited one first.
+    public var accounts: [String] { (account.map { [$0] } ?? []) + additionalAccounts }
+    public var projects: [String] { (project.map { [$0] } ?? []) + additionalProjects }
 
     /// The same state as route options for a `.queryReport` drill route
     /// (round-trips through `init(routeOptions:)`).
@@ -65,8 +82,8 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         var options: [String: FrappeValue] = [:]
         if let fromDate { options["from_date"] = .string(fromDate) }
         if let toDate { options["to_date"] = .string(toDate) }
-        if let account { options["account"] = .array([.string(account)]) }
-        if let project { options["project"] = .array([.string(project)]) }
+        if !accounts.isEmpty { options["account"] = .array(accounts.map { .string($0) }) }
+        if !projects.isEmpty { options["project"] = .array(projects.map { .string($0) }) }
         if let costCenter { options["cost_center"] = .array([.string(costCenter)]) }
         if let financeBook { options["finance_book"] = .string(financeBook) }
         if let presentationCurrency {
@@ -81,10 +98,10 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
     public func apply(to filters: inout [String: FrappeValue]) {
         if let fromDate { filters["from_date"] = .string(fromDate) }
         if let toDate { filters["to_date"] = .string(toDate) }
-        // Single values as one-element lists, matching Desk's MultiSelectList
-        // wire shape; the server expands group accounts/cost centers itself.
-        if let account { filters["account"] = .array([.string(account)]) }
-        if let project { filters["project"] = .array([.string(project)]) }
+        // Lists, matching Desk's MultiSelectList wire shape (usually one
+        // entry); the server expands group accounts/cost centers itself.
+        if !accounts.isEmpty { filters["account"] = .array(accounts.map { .string($0) }) }
+        if !projects.isEmpty { filters["project"] = .array(projects.map { .string($0) }) }
         if let costCenter { filters["cost_center"] = .array([.string(costCenter)]) }
         if let financeBook { filters["finance_book"] = .string(financeBook) }
         if let presentationCurrency {
@@ -104,6 +121,7 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
         project != nil || costCenter != nil || financeBook != nil
             || presentationCurrency != nil || !includeDefaultBookEntries
             || categorizeBy != Self.defaultCategorizeBy
+            || !additionalAccounts.isEmpty || !additionalProjects.isEmpty
     }
 
     /// Stable identity for screen caches (every field participates).
@@ -112,6 +130,7 @@ public struct GeneralLedgerFilterState: Sendable, Hashable {
             fromDate ?? "-", toDate ?? "-", account ?? "-", project ?? "-",
             costCenter ?? "-", financeBook ?? "-", presentationCurrency ?? "-",
             includeDefaultBookEntries ? "1" : "0", categorizeBy,
+            additionalAccounts.joined(separator: ","), additionalProjects.joined(separator: ","),
         ].joined(separator: "|")
     }
 }

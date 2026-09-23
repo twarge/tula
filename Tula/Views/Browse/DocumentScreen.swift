@@ -70,7 +70,10 @@ struct DocumentScreen: View {
                                 document: loaded.document, gridColumns: loaded.gridColumns,
                                 dashboard: loaded.periphery.connections.isEmpty
                                     && loaded.periphery.stats.isEmpty
-                                    ? nil : DashboardTabView(periphery: loaded.periphery))
+                                    && loaded.periphery.reportLinks.isEmpty
+                                    ? nil
+                                    : DashboardTabView(
+                                        periphery: loaded.periphery, documentName: name))
                             PeripheryTrailingSections(
                                 periphery: loaded.periphery, documentName: name,
                                 doctype: doctype,

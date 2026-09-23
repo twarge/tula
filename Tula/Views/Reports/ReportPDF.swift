@@ -195,7 +195,7 @@ struct ReportPrintPage: View {
                     .padding(.horizontal, 6)
                     .frame(
                         width: Self.columnWidth(column, isFirst: index == 0),
-                        alignment: column.fieldtype.isNumeric ? .trailing : .leading)
+                        alignment: column.alignsTrailing ? .trailing : .leading)
             }
         }
         .frame(height: Self.headerHeight)
@@ -236,7 +236,7 @@ struct ReportPrintPage: View {
                 .padding(.horizontal, 6)
                 .frame(
                     width: Self.columnWidth(column, isFirst: columnIndex == 0),
-                    alignment: column.fieldtype.isNumeric && columnIndex > 0
+                    alignment: column.alignsTrailing && columnIndex > 0
                         ? .trailing : .leading)
             }
         }

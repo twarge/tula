@@ -21,6 +21,9 @@ enum Route: Hashable {
     /// A DocType list pre-filtered by equality filters (Dashboard-tab
     /// connection routes; may carry several, e.g. party + party_type).
     case linkedList(doctype: String, filters: [String: String])
+    /// A DocType list under arbitrary conditions (a report cell's `list`
+    /// link: `name in [...]`, `posting_date <= …`).
+    case filteredList(doctype: String, conditions: [ListFilter])
     case document(doctype: String, name: String)
 
     /// Human-readable name for menus (the Go menu's History list).
@@ -47,7 +50,7 @@ enum Route: Hashable {
             return "\(doctype) · List"
         case .tree(let doctype):
             return "\(doctype) · Tree"
-        case .linkedList(let doctype, _):
+        case .linkedList(let doctype, _), .filteredList(let doctype, _):
             return "\(doctype) · Filtered List"
         case .document(let doctype, let name):
             return "\(doctype) · \(name)"
@@ -77,8 +80,32 @@ enum Route: Hashable {
             let filterKey = filters.keys.sorted().map { "\($0)=\(filters[$0] ?? "")" }
                 .joined(separator: "&")
             return "linked|\(doctype)|\(filterKey)"
+        case .filteredList(let doctype, let conditions):
+            let key = conditions.map {
+                "\($0.fieldname)\($0.op)\((try? $0.value.encodedJSONString()) ?? "")"
+            }.joined(separator: "&")
+            return "filtered|\(doctype)|\(key)"
         case .document(let doctype, let name):
             return "doc|\(doctype)|\(name)"
+        }
+    }
+
+    /// The screen a report cell's declared source opens (`ReportLink`, the
+    /// server-resolved counterpart of Desk's JS formatters). Nil for a
+    /// same-report filter change, which the report screen applies itself.
+    init?(link: ReportLink) {
+        switch link {
+        case .document(let doctype, let name):
+            self = .document(doctype: doctype, name: name)
+        case .list(let doctype, let filters):
+            self = .filteredList(doctype: doctype, conditions: filters)
+        case .ledger(let scope):
+            self = .queryReport(
+                name: StandardReports.generalLedger.name, extra: scope.filterState.routeOptions)
+        case .report(let name, let filters):
+            self = .queryReport(name: name, extra: filters)
+        case .filters:
+            return nil
         }
     }
 }

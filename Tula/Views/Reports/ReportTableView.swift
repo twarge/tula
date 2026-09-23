@@ -14,6 +14,9 @@ struct ReportResultView: View {
     /// (whole-span drill); an amount cell passes its own column so the
     /// destination can narrow to that period.
     var drillRoute: ((ReportRow, ReportColumn?) -> Route?)? = nil
+    /// What a cell's server-declared source (`ReportLink`) does when tapped;
+    /// nil leaves links inert.
+    var cellAction: ((ReportLink) -> ReportCellAction?)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,14 +24,34 @@ struct ReportResultView: View {
                 SummaryTilesView(items: result.summary)
                 Divider()
             }
+            if let message = result.message {
+                // Desk shows the report's message above the grid: a title,
+                // notes, review warnings.
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                Divider()
+            }
             if let chart = result.chart {
                 ReportChartView(chart: chart)
                 Divider()
             }
             ReportTableView(
-                result: result, fallbackCurrency: fallbackCurrency, drillRoute: drillRoute)
+                result: result, fallbackCurrency: fallbackCurrency, drillRoute: drillRoute,
+                cellAction: cellAction)
         }
     }
+}
+
+/// A linked report cell either navigates or re-seeds the report's own
+/// filters (a cross-reference between sections of one report).
+enum ReportCellAction {
+    case navigate(Route)
+    case setFilters(() -> Void)
 }
 
 struct ReportTableView: View {
@@ -37,6 +60,8 @@ struct ReportTableView: View {
     /// When provided, first-column cells navigate (P&L account → GL) and
     /// amount cells navigate scoped to their own column's period.
     var drillRoute: ((ReportRow, ReportColumn?) -> Route?)? = nil
+    /// Server-declared cell links take precedence over the drill rules.
+    var cellAction: ((ReportLink) -> ReportCellAction?)? = nil
 
     private var columns: [ReportColumn] { result.visibleColumns }
 
@@ -87,7 +112,7 @@ struct ReportTableView: View {
                     .padding(.horizontal, 12)
                     .frame(
                         width: width(index, extra: extra),
-                        alignment: column.fieldtype.isNumeric ? .trailing : .leading)
+                        alignment: column.alignsTrailing ? .trailing : .leading)
             }
         }
         .padding(.vertical, 8)
@@ -113,11 +138,11 @@ struct ReportTableView: View {
                             columnIndex == 0 ? CGFloat(row.indent) * 18 : 0)
                         .frame(
                             width: width(columnIndex, extra: extra),
-                            alignment: column.fieldtype.isNumeric ? .trailing : .leading)
+                            alignment: column.alignsTrailing ? .trailing : .leading)
                 }
             }
             .padding(.vertical, 6)
-            .fontWeight(isGroup || isTotal ? .semibold : .regular)
+            .fontWeight(isGroup || isTotal || row.isBold ? .semibold : .regular)
             .background(isTotal ? AnyShapeStyle(.quaternary.opacity(0.5)) : AnyShapeStyle(.clear))
             .overlay(alignment: .top) {
                 if isTotal { Divider() }
@@ -130,7 +155,9 @@ struct ReportTableView: View {
 
     @ViewBuilder
     private func cell(row: ReportRow, column: ReportColumn, isFirst: Bool) -> some View {
-        if isFirst {
+        if let link = row.link(for: column), let action = cellAction?(link) {
+            linked(plainCell(row: row, column: column, isFirst: isFirst), link: link, action: action)
+        } else if isFirst {
             if let drillRoute, let route = drillRoute(row, nil) {
                 NavigationLink(value: route) {
                     Text(firstCellText(row).text)
@@ -165,6 +192,52 @@ struct ReportTableView: View {
             } else {
                 valueView
             }
+        }
+    }
+
+    /// The cell's content without navigation, for a server-declared link to
+    /// wrap.
+    @ViewBuilder
+    private func plainCell(row: ReportRow, column: ReportColumn, isFirst: Bool) -> some View {
+        if isFirst {
+            Text(firstCellText(row).text)
+                .lineLimit(1)
+        } else {
+            FieldValueView(
+                fieldname: column.fieldname,
+                fieldtype: column.fieldtype,
+                options: nil,
+                value: row[column],
+                currencyCode: ValueFormatting.currencyCode(
+                    options: column.options, rowValues: row.values, fallback: fallbackCurrency),
+                precision: column.precision,
+                linkEnabled: false,
+                rowValues: row.values
+            )
+            .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private func linked<Content: View>(
+        _ content: Content, link: ReportLink, action: ReportCellAction
+    ) -> some View {
+        switch action {
+        case .navigate(let route):
+            let navigation = NavigationLink(value: route) {
+                content.foregroundStyle(.tint).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if case .document(let doctype, let name) = link {
+                navigation.modifier(DocumentQuickViewModifier(doctype: doctype, name: name))
+            } else {
+                navigation
+            }
+        case .setFilters(let apply):
+            Button(action: apply) {
+                content.foregroundStyle(.tint).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
