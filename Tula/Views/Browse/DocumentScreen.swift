@@ -15,6 +15,9 @@ struct DocumentScreen: View {
     /// Non-nil while a W3 edit is in progress; auto-refresh pauses so the
     /// draft's `modified` token (the optimistic lock) stays coherent.
     @State private var editSession: EditSession?
+    /// The TULA_EDIT_PREVIEW hook fires once per screen, so a save or
+    /// discard lands back in read mode like a normal launch.
+    @State private var didPreviewEdit = false
 
     struct Loaded {
         var meta: DocTypeMeta
@@ -190,7 +193,8 @@ struct DocumentScreen: View {
             // Verification hook: TULA_EDIT_PREVIEW=1 opens the edit UI
             // without a write session (Save stays locked).
             if ProcessInfo.processInfo.environment["TULA_EDIT_PREVIEW"] == "1",
-                editSession == nil {
+                editSession == nil, !didPreviewEdit {
+                didPreviewEdit = true
                 startEditing(loaded)
             }
         } catch {
