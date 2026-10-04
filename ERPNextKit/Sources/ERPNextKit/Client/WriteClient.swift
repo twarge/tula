@@ -35,9 +35,9 @@ public enum WriteMethod: String, Sendable, CaseIterable {
     /// Per-user Desk view settings (list sort, grid columns) for a DocType.
     case saveUserSettings = "frappe.model.utils.user_settings.save"
     /// Desk's list-column settings (the List View Settings document).
-    case saveListViewSettings = "frappe.desk.listview.save_listview_settings"
+    case saveListViewSettings = "frappe.desk.doctype.list_view_settings.list_view_settings.save_listview_settings"
     case bulkDelete = "frappe.desk.reportview.delete_items"
-    case bulkSubmitCancel = "frappe.desk.doctype.bulk_update.bulk_update.submit_cancel_action"
+    case bulkSubmitCancel = "frappe.desk.doctype.bulk_update.bulk_update.submit_cancel_or_update_docs"
     case bulkAssign = "frappe.desk.form.assign_to.add_multiple"
     case bulkTag = "frappe.desk.doctype.tag.tag.add_tags"
 }
