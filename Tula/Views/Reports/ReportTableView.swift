@@ -18,31 +18,43 @@ struct ReportResultView: View {
     /// nil leaves links inert.
     var cellAction: ((ReportLink) -> ReportCellAction?)? = nil
 
+    /// One vertical scroll view owns the whole body, so the tiles and chart
+    /// scroll away with the rows and the navigation bar's large title
+    /// collapses as it does in Mail. (When a horizontal scroll view came
+    /// first, the bar tracked that one and never collapsed.)
     var body: some View {
-        VStack(spacing: 0) {
-            if !result.summary.isEmpty {
-                SummaryTilesView(items: result.summary)
-                Divider()
+        GeometryReader { geometry in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    if !result.summary.isEmpty {
+                        SummaryTilesView(items: result.summary)
+                        Divider()
+                    }
+                    if let message = result.message {
+                        // Desk shows the report's message above the grid: a
+                        // title, notes, review warnings.
+                        Text(message)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                        Divider()
+                    }
+                    if let chart = result.chart {
+                        ReportChartView(chart: chart)
+                        Divider()
+                    }
+                    ReportTableView(
+                        result: result, fallbackCurrency: fallbackCurrency,
+                        viewportWidth: geometry.size.width, drillRoute: drillRoute,
+                        cellAction: cellAction)
+                }
             }
-            if let message = result.message {
-                // Desk shows the report's message above the grid: a title,
-                // notes, review warnings.
-                Text(message)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                Divider()
-            }
-            if let chart = result.chart {
-                ReportChartView(chart: chart)
-                Divider()
-            }
-            ReportTableView(
-                result: result, fallbackCurrency: fallbackCurrency, drillRoute: drillRoute,
-                cellAction: cellAction)
+            // No .refreshable here: UIKit's refresh control broke the nested
+            // horizontal/vertical scroll geometry. Reports refresh via the
+            // toolbar button and the auto-refresh probe.
         }
     }
 }
@@ -57,6 +69,9 @@ enum ReportCellAction {
 struct ReportTableView: View {
     let result: ReportResult
     let fallbackCurrency: String?
+    /// The enclosing scroll view's width: the first column absorbs any
+    /// slack, and wider tables scroll sideways.
+    let viewportWidth: CGFloat
     /// When provided, first-column cells navigate (P&L account → GL) and
     /// amount cells navigate scoped to their own column's period.
     var drillRoute: ((ReportRow, ReportColumn?) -> Route?)? = nil
@@ -72,30 +87,33 @@ struct ReportTableView: View {
             : min(220, max(110, CGFloat(column.width)))
     }
 
+    /// Sideways scrolling for wide tables, inside the report body's vertical
+    /// scroll view (`ReportResultView`).
     var body: some View {
-        GeometryReader { geometry in
-            let natural = (0..<columns.count).reduce(CGFloat(0)) { $0 + baseWidth($1) }
-            let extra = max(0, geometry.size.width - natural)
+        let natural = (0..<columns.count).reduce(CGFloat(0)) { $0 + baseWidth($1) }
+        let extra = max(0, viewportWidth - natural)
 
-            ScrollView(.horizontal) {
-                ScrollView(.vertical) {
-                    LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                        Section {
-                            ForEach(Array(result.rows.enumerated()), id: \.element.id) {
-                                index, row in
-                                rowView(row, index: index, firstColumnExtra: extra)
-                            }
-                        } header: {
-                            headerRow(firstColumnExtra: extra)
-                        }
+        ScrollView(.horizontal) {
+            VStack(spacing: 0) {
+                headerRow(firstColumnExtra: extra)
+                    // Pinned by hand: a lazy stack's pinned headers only pin
+                    // to the nearest scroll view, the horizontal one here.
+                    // This holds the header at the vertical scroll view's
+                    // top once it would scroll past it.
+                    .visualEffect { content, proxy in
+                        content.offset(
+                            y: max(0, -proxy.frame(in: .scrollView(axis: .vertical)).minY))
+                    }
+                    .zIndex(1)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(result.rows.enumerated()), id: \.element.id) { index, row in
+                        rowView(row, index: index, firstColumnExtra: extra)
                     }
                 }
-                // No .refreshable here: UIKit's refresh control breaks the
-                // nested horizontal/vertical scroll geometry. Reports refresh
-                // via the toolbar button and the auto-refresh probe.
-                .frame(width: max(natural, geometry.size.width))
             }
+            .frame(width: max(natural, viewportWidth))
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
     private func width(_ index: Int, extra: CGFloat) -> CGFloat {

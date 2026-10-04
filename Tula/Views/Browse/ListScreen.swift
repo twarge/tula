@@ -116,10 +116,12 @@ struct ListScreen: View {
             #if !os(macOS)
                 // Manual selection mode: EditButton's editMode environment
                 // leaks to the sidebar list on iPad and clears the sidebar
-                // selection, so selection is drawn by hand instead.
+                // selection, so selection is drawn by hand instead. "Select"
+                // waits in the overflow menu (as in Files); "Done" joins the
+                // bar while selecting.
                 if model.writeSession != nil
                     || ProcessInfo.processInfo.environment["TULA_EDIT_PREVIEW"] == "1" {
-                    ToolbarItem(placement: .primaryAction) {
+                    ToolbarItem(placement: selectionMode ? .primaryAction : .secondaryAction) {
                         Button(selectionMode ? "Done" : "Select") {
                             selectionMode.toggle()
                             if !selectionMode { selection = [] }
@@ -128,8 +130,10 @@ struct ListScreen: View {
                 }
             #endif
             WriteGateToolbar()
-            OpenInDeskToolbar(route: .doctypeList(doctype))
-            RefreshToolbar(lastUpdated: lastUpdated, detail: countDetail) { refreshToken += 1 }
+            OpenInDeskToolbar(route: .doctypeList(doctype), placement: .demotedAction)
+            RefreshToolbar(
+                lastUpdated: lastUpdated, detail: countDetail, placement: .demotedAction
+            ) { refreshToken += 1 }
         }
         .sheet(isPresented: $showingNewDocument) {
             NewDocumentSheet(doctype: doctype) { created in
@@ -232,7 +236,7 @@ struct ListScreen: View {
     @ToolbarContentBuilder
     private var sortToolbar: some ToolbarContent {
         if case .loaded(let loaded) = state {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .demotedAction) {
                 Menu {
                     ForEach(sortCandidates(loaded), id: \.fieldname) { candidate in
                         Toggle(isOn: Binding {
@@ -268,7 +272,7 @@ struct ListScreen: View {
     @ToolbarContentBuilder
     private var columnsToolbar: some ToolbarContent {
         if case .loaded(let loaded) = state {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .demotedAction) {
                 Menu {
                     ForEach(columnCandidates(loaded)) { field in
                         Toggle(isOn: columnBinding(for: field, loaded: loaded)) {

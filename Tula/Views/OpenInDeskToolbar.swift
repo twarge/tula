@@ -6,13 +6,14 @@ import SwiftUI
 /// enum mirrors Desk's URL scheme (ARCHITECTURE.md §5). Hidden in demo mode.
 struct OpenInDeskToolbar: ToolbarContent {
     let route: Route
+    var placement: ToolbarItemPlacement = .primaryAction
 
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
 
     var body: some ToolbarContent {
         if let url = webURL {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: placement) {
                 Button {
                     openURL(url)
                 } label: {

@@ -93,8 +93,11 @@ struct DocumentScreen: View {
             SearchToolbar()
             WriteGateToolbar()
             PrintToolbar(doctype: doctype, name: name)
-            OpenInDeskToolbar(route: .document(doctype: doctype, name: name))
-            RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
+            OpenInDeskToolbar(
+                route: .document(doctype: doctype, name: name), placement: .demotedAction)
+            RefreshToolbar(lastUpdated: lastUpdated, placement: .demotedAction) {
+                refreshToken += 1
+            }
         }
         .autoRefresh(signalDoctype: doctype) {
             if editSession == nil { refreshToken += 1 }
@@ -305,22 +308,14 @@ struct DocumentFormView<DashboardContent: View>: View {
         let evaluator = editSession?.evaluator ?? self.evaluator
         let visibleTabs = layout.tabs.filter { evaluator.isVisible($0.breakField?.dependsOn) }
 
+        let showsTabs = visibleTabs.count > 1 || dashboard != nil
+
         VStack(alignment: .leading, spacing: 16) {
-            if visibleTabs.count > 1 || dashboard != nil {
-                Picker("Tab", selection: $selectedTab) {
-                    if let first = visibleTabs.first {
-                        Text(first.label).tag(first.id)
-                    }
-                    if dashboard != nil {
-                        Text("Dashboard").tag(Self.dashboardTabID)
-                    }
-                    ForEach(Array(visibleTabs.dropFirst())) { tab in
-                        Text(tab.label).tag(tab.id)
-                    }
+            #if os(macOS)
+                if showsTabs {
+                    tabPicker(visibleTabs)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
+            #endif
 
             if selectedTab == Self.dashboardTabID, let dashboard {
                 dashboard
@@ -335,7 +330,52 @@ struct DocumentFormView<DashboardContent: View>: View {
                 }
             }
         }
+        #if !os(macOS)
+            .toolbar {
+                if showsTabs {
+                    tabToolbar(visibleTabs)
+                }
+            }
+        #endif
     }
+
+    private func tabPicker(_ visibleTabs: [FormLayout.Tab]) -> some View {
+        Picker("Tab", selection: $selectedTab) {
+            if let first = visibleTabs.first {
+                Text(first.label).tag(first.id)
+            }
+            if dashboard != nil {
+                Text("Dashboard").tag(Self.dashboardTabID)
+            }
+            ForEach(Array(visibleTabs.dropFirst())) { tab in
+                Text(tab.label).tag(tab.id)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    #if !os(macOS)
+        /// iOS puts the tab strip in the navigation bar's centre (of the
+        /// document screen, or of the child-row sheet's own stack) rather
+        /// than atop the scrolling form.
+        @ToolbarContentBuilder
+        private func tabToolbar(_ visibleTabs: [FormLayout.Tab]) -> some ToolbarContent {
+            let item = ToolbarItem(placement: .principal) { tabPicker(visibleTabs) }
+            #if os(iOS)
+                if #available(iOS 27.1, *) {
+                    // Left automatic, a segmented control may be inferred
+                    // horizontal-only and hidden when the iPhone Duo's
+                    // vertical bar is the only bar — stranding the other tabs.
+                    item.axisBehavior(.verticalPreferred)
+                } else {
+                    item
+                }
+            #else
+                item
+            #endif
+        }
+    #endif
 
     /// Desk renders an unlabeled Section Break as a layout break *inside*
     /// the current visual block — only labeled sections start a new one.

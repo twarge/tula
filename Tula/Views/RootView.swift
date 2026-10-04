@@ -40,6 +40,13 @@ struct RootView: View {
     @State private var path: [Route] = []
     @State private var showingSettings = false
     @State private var showingOmnibar = false
+    /// Chosen deliberately rather than left to the split view: the system
+    /// default column layout wherever there's room (unchanged on macOS and
+    /// iPad), and where it collapses to one stack (iPhone, the Duo's cover
+    /// screen) the detail is on top, so launch opens the selected report —
+    /// Profit and Loss — with the sidebar one Back away.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .detail
 
     /// What the detail column is actually showing.
     private var currentRoute: Route? {
@@ -47,7 +54,10 @@ struct RootView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(
+            columnVisibility: $columnVisibility,
+            preferredCompactColumn: $preferredCompactColumn
+        ) {
             SidebarView(selection: $selection, showingSettings: $showingSettings)
         } detail: {
             NavigationStack(path: $path) {
@@ -76,6 +86,7 @@ struct RootView: View {
         .onChange(of: model.pendingRoute) { _, route in
             if let route {
                 selection = route
+                preferredCompactColumn = .detail
                 model.pendingRoute = nil
             }
         }
@@ -92,6 +103,8 @@ struct RootView: View {
             OmnibarView { route in
                 showingOmnibar = false
                 path.append(route)
+                // ⌘K works from the sidebar too; collapsed, show the result.
+                preferredCompactColumn = .detail
             }
         }
         .background(
@@ -195,9 +208,23 @@ struct SidebarView: View {
             }
         }
         .navigationTitle("Tula")
-        .safeAreaInset(edge: .bottom) {
-            connectionFooter
-        }
+        #if os(macOS)
+            .safeAreaInset(edge: .bottom) {
+                connectionFooter
+            }
+        #else
+            // iOS: the footer's parts join the sidebar column's own bottom
+            // toolbar, which follows the Duo's vertical bar where a custom
+            // inset bar would not.
+            .toolbar {
+                ToolbarItem(placement: .status) {
+                    connectionStatus
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    settingsButton
+                }
+            }
+        #endif
     }
 
     /// Desk workspace icon names → SF Symbols.
@@ -226,7 +253,22 @@ struct SidebarView: View {
         }
     }
 
+    /// The macOS sidebar footer.
     private var connectionFooter: some View {
+        HStack(spacing: 8) {
+            connectionStatus
+            Spacer()
+            settingsButton
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// Demo (orange) / live (green) dot beside the data source's name.
+    private var connectionStatus: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(model.isDemo ? Color.orange : Color.green)
@@ -239,17 +281,15 @@ struct SidebarView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            Button {
-                showingSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .help("Server settings")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.bar)
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showingSettings = true
+        } label: {
+            Label("Settings", systemImage: "gearshape")
+        }
+        .help("Server settings")
     }
 }

@@ -213,6 +213,10 @@ private struct WireDateEditor: View {
 struct LinkSuggestField: View {
     let doctype: String
     let text: Binding<String>
+    /// Called once the entry settles — a suggestion picked, Return, or focus
+    /// leaving the field — for callers that apply on commit rather than on
+    /// every keystroke.
+    var onCommit: ((String) -> Void)? = nil
 
     @Environment(AppModel.self) private var model
     @State private var suggestions: [LinkOption] = []
@@ -226,12 +230,14 @@ struct LinkSuggestField: View {
                 .frame(maxWidth: 320)
                 .focused($focused)
                 .autocorrectionDisabled()
+                .onSubmit { onCommit?(text.wrappedValue) }
             if showSuggestions && focused && !suggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(suggestions.prefix(6)) { option in
                         Button {
                             text.wrappedValue = option.value
                             showSuggestions = false
+                            onCommit?(option.value)
                         } label: {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(option.value)
@@ -253,6 +259,9 @@ struct LinkSuggestField: View {
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
                 .frame(maxWidth: 320)
             }
+        }
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { onCommit?(text.wrappedValue) }
         }
         .task(id: "\(doctype)|\(text.wrappedValue)|\(focused)") {
             guard focused, !doctype.isEmpty else {

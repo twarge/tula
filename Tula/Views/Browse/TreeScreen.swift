@@ -62,8 +62,10 @@ struct TreeScreen: View {
                 }
                 .help("View as list")
             }
-            OpenInDeskToolbar(route: .tree(doctype))
-            RefreshToolbar(lastUpdated: lastUpdated) { refreshToken += 1 }
+            OpenInDeskToolbar(route: .tree(doctype), placement: .demotedAction)
+            RefreshToolbar(lastUpdated: lastUpdated, placement: .demotedAction) {
+                refreshToken += 1
+            }
         }
         .autoRefresh(signalDoctype: doctype) { refreshToken += 1 }
         .task(id: "\(model.sourceGeneration)-\(doctype)-\(refreshToken)") {

@@ -357,7 +357,9 @@ missing is navigation and filters:
 2. **Report filter parsing** — fetch `query_report.get_script`, tolerantly parse the
    `filters: [...]` literal into native filter definitions (field/type/options/default/
    mandatory), rendered by the same field-registry controls as the list filter editor;
-   fall back to the native financial-statement sets. (M)
+   fall back to the native financial-statement sets. (M) Rendered as labeled controls in
+   the Filters inspector, where link and text filters apply on commit (pick, Return, or
+   leaving the field) rather than per keystroke.
 3. **Drill-down** — report → report routes with carried filters (P&L/BS account row → GL
    for that account and period), Desk's core accountant workflow. (S–M)
    Extended Aug 2026 beyond Desk parity: amount cells drill per period column
@@ -436,8 +438,10 @@ prepared-report polling and multiple server profiles.
     (not servable metadata), so `FinancialFilterState` models the whole conventional set —
     fiscal-year span or date range, finance book, presentation currency, cost center,
     project (sent as one-element MultiSelectList values), accumulated values, include
-    default FB entries — with the advanced set in a popover off the filter bar and every
-    field participating in cache identity. Desk's "Report View" (Growth/Margin, a
+    default FB entries — all in one filter inspector off the toolbar's Filters button
+    (a column on Mac and iPad, open by default and remembered on macOS; a half-height
+    sheet on iPhone; the selection shows as the screen subtitle) and every field
+    participating in cache identity. Desk's "Report View" (Growth/Margin, a
     client-side transform) stays deferred.
 
 12. **Formatting fidelity** — honor field `precision`, System Settings number/date formats,

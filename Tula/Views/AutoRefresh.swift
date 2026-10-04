@@ -58,19 +58,33 @@ extension View {
     }
 }
 
+extension ToolbarItemPlacement {
+    /// A busy screen's less-used actions (past its first three): the overflow
+    /// menu on iOS, where a phone's bar — or the Duo's vertical bar — fits
+    /// only a few items. macOS keeps them in the toolbar as before.
+    static var demotedAction: ToolbarItemPlacement {
+        #if os(macOS)
+            .primaryAction
+        #else
+            .secondaryAction
+        #endif
+    }
+}
+
 /// Shared toolbar affordance: a refresh button (⌘R), with an "Updated 12:41"
 /// stamp beside it on macOS. iOS nav bars drop toolbar text, so there the
-/// stamp lives in the filter bar instead (see `UpdatedStamp`).
+/// button stands alone and auto-refresh keeps content current.
 struct RefreshToolbar: ToolbarContent {
     let lastUpdated: Date?
     /// Optional extra status shown beside the stamp on macOS ("50 of 1,234").
     var detail: String? = nil
+    var placement: ToolbarItemPlacement = .primaryAction
     let action: () -> Void
 
     @Environment(AppModel.self) private var model
 
     var body: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItem(placement: placement) {
             #if os(macOS)
                 HStack(spacing: 10) {
                     if let detail {

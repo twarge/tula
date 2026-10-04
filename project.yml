@@ -41,6 +41,17 @@ targets:
         LSApplicationCategoryType: public.app-category.finance
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        # iPhone (the Duo included): portrait and both landscapes. iPad and
+        # macOS don't read the ~iphone key.
+        UISupportedInterfaceOrientations~iphone:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Scene-based lifecycle, declared as Xcode's
+        # UIApplicationSceneManifest_Generation would (the plist is written
+        # from these properties, so INFOPLIST_KEY_* settings don't apply).
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
         # HTTPS only, except plain-HTTP ERPNext dev servers on the local network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
