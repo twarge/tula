@@ -25,7 +25,14 @@ struct WorkspaceScreen: View {
         var entries: [Entry]
     }
 
-    struct Loaded {
+    enum Loaded {
+        case content(Contents)
+        case doctype(String, isSingle: Bool)
+        case report(String)
+        case web(URL)
+    }
+
+    struct Contents {
         var shortcuts: [Entry]
         var cards: [Card]
         var numberCards: [NumberCardValue]
@@ -33,6 +40,37 @@ struct WorkspaceScreen: View {
     }
 
     var body: some View {
+        Group {
+            switch state {
+            case .loaded(.doctype(let doctype, let isSingle)):
+                if isSingle {
+                    DocumentScreen(doctype: doctype, name: doctype)
+                } else {
+                    ListScreen(doctype: doctype)
+                }
+            case .loaded(.report(let name)):
+                if let descriptor = StandardReports.financialStatements.first(where: {
+                    $0.name == name
+                }) {
+                    ReportScreen(descriptor: descriptor)
+                } else {
+                    GenericReportScreen(reportName: name)
+                }
+            default:
+                workspaceContent
+                    .navigationTitle(workspaceName)
+                    .toolbar {
+                        SearchToolbar()
+                        OpenInDeskToolbar(route: .workspace(workspaceName))
+                    }
+            }
+        }
+        .task(id: "\(model.sourceGeneration)-\(workspaceName)") {
+            await load()
+        }
+    }
+
+    private var workspaceContent: some View {
         Group {
             switch state {
             case .loading:
@@ -44,7 +82,17 @@ struct WorkspaceScreen: View {
                 } description: {
                     Text(message)
                 }
-            case .loaded(let loaded):
+            case .loaded(.web(let url)):
+                ContentUnavailableView {
+                    Label(workspaceName, systemImage: "safari")
+                } description: {
+                    Text("This workspace opens in your browser.")
+                    Text(url.absoluteString)
+                } actions: {
+                    Link("Open in Browser", destination: url)
+                        .buttonStyle(.borderedProminent)
+                }
+            case .loaded(.content(let loaded)):
                 List {
                     if !loaded.numberCards.isEmpty {
                         Section {
@@ -96,15 +144,9 @@ struct WorkspaceScreen: View {
                         }
                     }
                 }
+            case .loaded(.doctype), .loaded(.report):
+                EmptyView() // Native destinations are rendered by `body`.
             }
-        }
-        .navigationTitle(workspaceName)
-        .toolbar {
-            SearchToolbar()
-            OpenInDeskToolbar(route: .workspace(workspaceName))
-        }
-        .task(id: "\(model.sourceGeneration)-\(workspaceName)") {
-            await load()
         }
     }
 
@@ -121,6 +163,22 @@ struct WorkspaceScreen: View {
         }
         do {
             let doc = try await model.dataSource.document("Workspace", name: workspaceName)
+
+            switch try WorkspaceDestination(document: doc, baseURL: model.webBaseURL) {
+            case .content:
+                break
+            case .doctype(let doctype):
+                let bundle = try await model.cache.metaBundle(
+                    for: doctype, using: model.dataSource)
+                show(.doctype(doctype, isSingle: bundle.metas.first?.isSingle ?? false))
+                return
+            case .report(let name):
+                show(.report(name))
+                return
+            case .web(let url):
+                show(.web(url))
+                return
+            }
 
             var numberCards: [NumberCardValue] = []
             for row in (doc.raw["number_cards"]?.arrayValue ?? []).prefix(6) {
@@ -141,18 +199,22 @@ struct WorkspaceScreen: View {
                 charts.append(chart)
             }
 
-            let loaded = Loaded(
+            let loaded = Contents(
                 shortcuts: Self.entries(from: doc.raw["shortcuts"]?.arrayValue ?? []),
                 cards: Self.cards(from: doc.raw["links"]?.arrayValue ?? []),
                 numberCards: numberCards,
                 charts: charts)
-            state = .loaded(loaded)
-            model.cache.setScreen(cacheKey, loaded)
+            show(.content(loaded))
         } catch {
             if case .loaded = state {} else {
                 state = .failed(error.localizedDescription)
             }
         }
+    }
+
+    private func show(_ loaded: Loaded) {
+        state = .loaded(loaded)
+        model.cache.setScreen(cacheKey, loaded)
     }
 
     private var cacheKey: String {
