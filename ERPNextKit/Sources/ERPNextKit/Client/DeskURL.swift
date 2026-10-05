@@ -33,4 +33,29 @@ public enum DeskURL {
     public static func queryReport(base: URL, reportName: String) -> URL {
         base.appending(path: "app/query-report").appending(component: reportName)
     }
+
+    /// A Desk screen Tula renders natively, read back from a link in
+    /// server HTML (`get_link_to_form` and friends).
+    public enum Target: Hashable, Sendable {
+        /// The DocType arrives as its URL slug; resolve it against the
+        /// site's DocType names (`slug(_:)` isn't reversible for case).
+        case document(slug: String, name: String)
+        case queryReport(name: String)
+    }
+
+    /// Reads `/app/{slug}/{name}` and `/app/query-report/{name}` links —
+    /// relative, or absolute on `base`'s host. Nil for anything else, which
+    /// callers open in the browser.
+    public static func target(of url: URL, base: URL?) -> Target? {
+        if let host = url.host(percentEncoded: false) {
+            guard let base, host.lowercased() == base.host(percentEncoded: false)?.lowercased()
+            else { return nil }
+        }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count == 3, parts[0] == "app", !parts[2].isEmpty else { return nil }
+        if parts[1] == "query-report" {
+            return .queryReport(name: parts[2])
+        }
+        return .document(slug: parts[1], name: parts[2])
+    }
 }

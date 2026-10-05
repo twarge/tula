@@ -24,6 +24,9 @@ final class AppModel {
 
     /// Set by menu commands (⌘1–5, ⌘F); consumed by RootView.
     var pendingRoute: Route?
+    /// A screen to push onto the current stack, for navigation that can't be
+    /// a NavigationLink (links inside rich text); consumed by RootView.
+    var pendingPush: Route?
     var omnibarRequested = false
 
     // Navigation history (browser-style): every displayed route in order,

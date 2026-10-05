@@ -30,9 +30,15 @@ struct ReportResultView: View {
                         SummaryTilesView(items: result.summary)
                         Divider()
                     }
-                    if let message = result.message {
+                    if let rich = result.messageHTML.flatMap(HTMLRichText.init(html:)) {
                         // Desk shows the report's message above the grid: a
-                        // title, notes, review warnings.
+                        // title, notes, review warnings — formatted as there.
+                        ReportMessageView(message: rich)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                        Divider()
+                    } else if let message = result.message {
+                        // Report snapshots cached before the HTML was kept.
                         Text(message)
                             .font(.callout)
                             .foregroundStyle(.secondary)

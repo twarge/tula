@@ -90,6 +90,12 @@ struct RootView: View {
                 model.pendingRoute = nil
             }
         }
+        .onChange(of: model.pendingPush) { _, route in
+            if let route {
+                path.append(route)
+                model.pendingPush = nil
+            }
+        }
         .onChange(of: model.omnibarRequested) { _, requested in
             if requested {
                 showingOmnibar = true

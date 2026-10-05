@@ -166,6 +166,9 @@ public struct ReportResult: Sendable, Hashable, Codable {
     /// The report's `message` (Desk shows it above the grid as HTML), as
     /// plain lines: a title, notes, review warnings.
     public var message: String? = nil
+    /// The same message as sent, for rich rendering (`HTMLRichText`).
+    /// Optional so report snapshots cached before it existed still decode.
+    public var messageHTML: String? = nil
 
     public var visibleColumns: [ReportColumn] { columns.filter { !$0.hidden } }
 
@@ -212,10 +215,12 @@ public struct ReportResult: Sendable, Hashable, Codable {
         let summary = (payload["report_summary"]?.arrayValue ?? [])
             .compactMap(ReportSummaryItem.init(value:))
 
+        let messageHTML = payload["message"]?.nonEmptyString
         return ReportResult(
             columns: columns, rows: rows, summary: summary,
             chart: ReportChart(value: payload["chart"]),
-            message: payload["message"]?.nonEmptyString.flatMap(Self.plainText(fromHTML:)))
+            message: messageHTML.flatMap(Self.plainText(fromHTML:)),
+            messageHTML: messageHTML)
     }
 
     /// Block-level tags become line breaks, list items bullets, the rest is

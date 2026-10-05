@@ -209,8 +209,11 @@ report that resolves its links *server-side* needs neither: any row key `link_<f
 in one of five shapes — `{doctype, name}`, `{list, filters}`, `{ledger: {account, project,
 from_date, to_date}}`, `{report, filters}`, `{filters}` (this report, re-seeded) — is decoded
 as `ReportLink` and navigates (`Route(link:)`; the last re-seeds the chips in place).
-Desk's `align`, `bold` and `message` are honored the same way. The DCAA module's *Incurred
-Cost Proposal Schedules* is the first report written to this contract.
+Desk's `align`, `bold` and `message` are honored the same way — the message's HTML
+(headings, `<br>` lines, lists, bold/italic, links, Bootstrap `text-*` colors) parsed by
+`HTMLRichText` and rendered natively, its Desk form/report links opening the native
+screen. The DCAA module's *Incurred Cost Proposal Schedules* is the first report written to
+this contract.
 
 **Dashboard reports.** A DocType's form dashboard (`*_dashboard.py`) may list `reports`;
 Desk shows them under Connections and opens each with the document as the dashboard's
