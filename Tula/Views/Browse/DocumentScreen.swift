@@ -362,11 +362,7 @@ struct DocumentFormView<DashboardContent: View>: View {
         @ToolbarContentBuilder
         private func tabToolbar(_ visibleTabs: [FormLayout.Tab]) -> some ToolbarContent {
             let item = ToolbarItem(placement: .principal) { tabPicker(visibleTabs) }
-            // `axisBehavior` first ships in the iOS 27.1 SDK (SwiftUI
-            // 8.0.85.27); older SDKs — CI's and the App Store build's Xcode 26 —
-            // can't compile the call, so it's gated at compile time as well
-            // as at runtime.
-            #if os(iOS) && canImport(SwiftUI, _version: 8.0.85.27)
+            #if os(iOS)
                 if #available(iOS 27.1, *) {
                     // Left automatic, a segmented control may be inferred
                     // horizontal-only and hidden when the iPhone Duo's
