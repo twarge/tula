@@ -12,6 +12,12 @@ struct GenericReportScreen: View {
     let reportName: String
     var extra: [String: FrappeValue] = [:]
 
+    init(reportName: String, extra: [String: FrappeValue] = [:]) {
+        self.reportName = reportName
+        self.extra = extra
+        display = ReportDisplaySettings(report: reportName)
+    }
+
     @Environment(AppModel.self) private var model
     @State private var definitions: [ReportFilterDefinition]?
     @State private var values: [String: String] = [:]
@@ -19,6 +25,7 @@ struct GenericReportScreen: View {
     @State private var state: LoadState<ReportResult> = .loading
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    private var display: ReportDisplaySettings
     /// The filter inspector, as on `ReportScreen`: closed by default on iOS,
     /// open by default and remembered on macOS.
     #if os(macOS)
@@ -31,11 +38,16 @@ struct GenericReportScreen: View {
         (definitions ?? []).filter { !$0.hidden }
     }
 
-    /// Open only when there's something to show: a report without filters
+    /// Filters to set or display checkboxes to show.
+    private var hasInspectorContent: Bool {
+        !visibleDefinitions.isEmpty || loadedResult?.hasDisplayToggles == true
+    }
+
+    /// Open only when there's something to show: a report with neither
     /// keeps the remembered macOS preference without an empty inspector.
     private var filtersPresented: Binding<Bool> {
         Binding(
-            get: { showingFilters && !visibleDefinitions.isEmpty },
+            get: { showingFilters && hasInspectorContent },
             set: { showingFilters = $0 })
     }
 
@@ -43,12 +55,13 @@ struct GenericReportScreen: View {
         content
             .inspector(isPresented: filtersPresented) {
                 GenericReportFiltersInspector(
-                    definitions: visibleDefinitions, values: $values)
+                    definitions: visibleDefinitions, values: $values,
+                    report: reportName, result: loadedResult)
             }
             .navigationTitle(reportName)
             .modifier(ScopeSubtitle(text: pdfSubtitle ?? ""))
             .toolbar {
-                if !visibleDefinitions.isEmpty {
+                if hasInspectorContent {
                     ReportFilterToolbar(
                         isFiltered: visibleDefinitions.contains {
                             (values[$0.fieldname] ?? "") != ($0.defaultValue ?? "")
@@ -91,6 +104,7 @@ struct GenericReportScreen: View {
         case .loaded(let result):
             ReportResultView(
                 result: result, fallbackCurrency: model.fallbackCurrencyCode,
+                showsSummary: display.showsSummary, showsChart: display.showsChart,
                 drillRoute: drillRoute(for:column:), cellAction: cellAction(for:))
         }
     }
@@ -278,12 +292,19 @@ struct GenericReportScreen: View {
 struct GenericReportFiltersInspector: View {
     let definitions: [ReportFilterDefinition]
     @Binding var values: [String: String]
+    /// The report on screen, for its display checkboxes.
+    let report: String
+    let result: ReportResult?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(definitions) { definition in
                     control(for: definition)
+                }
+                if let result, result.hasDisplayToggles {
+                    if !definitions.isEmpty { Divider() }
+                    ReportDisplayToggles(report: report, result: result)
                 }
             }
             .pickerStyle(.menu)

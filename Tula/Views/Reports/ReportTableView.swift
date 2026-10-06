@@ -10,6 +10,10 @@ import SwiftUI
 struct ReportResultView: View {
     let result: ReportResult
     let fallbackCurrency: String?
+    /// The filter inspector's per-report display checkboxes
+    /// (`ReportDisplaySettings`).
+    var showsSummary = true
+    var showsChart = true
     /// Row + column → destination. A nil column means the row's label cell
     /// (whole-span drill); an amount cell passes its own column so the
     /// destination can narrow to that period.
@@ -26,7 +30,7 @@ struct ReportResultView: View {
         GeometryReader { geometry in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    if !result.summary.isEmpty {
+                    if showsSummary, !result.summary.isEmpty {
                         SummaryTilesView(items: result.summary)
                         Divider()
                     }
@@ -48,7 +52,7 @@ struct ReportResultView: View {
                             .padding(.vertical, 10)
                         Divider()
                     }
-                    if let chart = result.chart {
+                    if showsChart, let chart = result.chart {
                         ReportChartView(chart: chart)
                         Divider()
                     }

@@ -17,6 +17,7 @@ struct ReportScreen: View {
     @State private var glState: GeneralLedgerFilterState
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    private var display: ReportDisplaySettings
     /// The filter inspector: closed by default on iOS (a sheet on a phone);
     /// open by default on macOS, where Desk keeps report filters on screen,
     /// and remembered there across reports.
@@ -32,6 +33,7 @@ struct ReportScreen: View {
         // Route identity (`.id(route.stableID)`) folds `extra` in, so each
         // distinct drill-down gets its own freshly seeded state.
         _glState = State(initialValue: GeneralLedgerFilterState(routeOptions: extra))
+        display = ReportDisplaySettings(report: descriptor.name)
     }
 
     private var isGeneralLedger: Bool {
@@ -57,7 +59,8 @@ struct ReportScreen: View {
     var body: some View {
         content
             .inspector(isPresented: $showingFilters) {
-                ReportFiltersInspector(descriptor: descriptor, glState: $glState)
+                ReportFiltersInspector(
+                    descriptor: descriptor, glState: $glState, result: loadedResult)
             }
             .navigationTitle(descriptor.title)
             .modifier(ScopeSubtitle(text: scopeSubtitle))
@@ -127,6 +130,7 @@ struct ReportScreen: View {
             ReportResultView(
                 result: result,
                 fallbackCurrency: model.fallbackCurrencyCode,
+                showsSummary: display.showsSummary, showsChart: display.showsChart,
                 drillRoute: drillRoute(for:column:))
         }
     }
@@ -358,6 +362,8 @@ struct ReportFiltersInspector: View {
     /// The General Ledger's screen-local, drill-seeded filter state;
     /// unused by the other statements.
     @Binding var glState: GeneralLedgerFilterState
+    /// The report on screen, for its display checkboxes.
+    let result: ReportResult?
     @Environment(AppModel.self) private var model
 
     private var isGeneralLedger: Bool {
@@ -420,6 +426,10 @@ struct ReportFiltersInspector: View {
                     Divider()
                     AdvancedReportFields(descriptor: descriptor)
                 }
+                if let result, result.hasDisplayToggles {
+                    Divider()
+                    ReportDisplayToggles(report: descriptor.name, result: result)
+                }
             }
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -446,6 +456,48 @@ struct ReportFiltersInspector: View {
 /// Where the macOS report and tree screens remember whether the filter
 /// inspector is open.
 let reportFiltersShownKey = "reportFiltersShown"
+
+/// Whether a report's summary tiles and chart show above its grid — the
+/// filter inspector's display checkboxes, remembered per report as
+/// child-table columns are per DocType (`reportShowsSummary.<Report>`,
+/// `reportShowsChart.<Report>`).
+struct ReportDisplaySettings: DynamicProperty {
+    @AppStorage var showsSummary: Bool
+    @AppStorage var showsChart: Bool
+
+    init(report: String) {
+        _showsSummary = AppStorage(wrappedValue: true, "reportShowsSummary.\(report)")
+        _showsChart = AppStorage(wrappedValue: true, "reportShowsChart.\(report)")
+    }
+}
+
+extension ReportResult {
+    /// Whether the filter inspector offers display checkboxes for this
+    /// result.
+    var hasDisplayToggles: Bool { !summary.isEmpty || chart != nil }
+}
+
+/// The filter inspector's display checkboxes, one per part the report
+/// returned. They share the screen's `ReportDisplaySettings` keys, so each
+/// change shows at once.
+struct ReportDisplayToggles: View {
+    let result: ReportResult
+    private var display: ReportDisplaySettings
+
+    init(report: String, result: ReportResult) {
+        self.result = result
+        display = ReportDisplaySettings(report: report)
+    }
+
+    var body: some View {
+        if !result.summary.isEmpty {
+            Toggle("Show Summary", isOn: display.$showsSummary)
+        }
+        if result.chart != nil {
+            Toggle("Show Chart", isOn: display.$showsChart)
+        }
+    }
+}
 
 extension View {
     /// Shared by the report filter inspectors: a column where there's
