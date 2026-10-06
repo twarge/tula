@@ -47,6 +47,14 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # iPad: all four. App Store Connect rejects an iPad build that
+        # supports multitasking without them ("Invalid bundle. No orientations
+        # were specified"); Tula does (multiple scenes, no UIRequiresFullScreen).
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # Scene-based lifecycle, declared as Xcode's
         # UIApplicationSceneManifest_Generation would (the plist is written
         # from these properties, so INFOPLIST_KEY_* settings don't apply).
