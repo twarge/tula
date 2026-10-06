@@ -130,7 +130,7 @@ struct ListScreen: View {
                 }
             #endif
             WriteGateToolbar()
-            OpenInDeskToolbar(route: .doctypeList(doctype), placement: .demotedAction)
+            OpenInDeskToolbar(route: deskRoute, placement: .demotedAction)
             RefreshToolbar(
                 lastUpdated: lastUpdated, detail: countDetail, placement: .demotedAction
             ) { refreshToken += 1 }
@@ -190,6 +190,14 @@ struct ListScreen: View {
             .joined(separator: "&")
         let advanced = advancedFilters.map(\.key).joined(separator: "&")
         return "\(quick)|\(advanced)"
+    }
+
+    /// Open in Desk: the list under the filters it's showing (search, quick
+    /// filters, filter editor), once they're known — they need the
+    /// DocType's metadata.
+    private var deskRoute: Route {
+        guard case .loaded(let loaded) = state else { return .doctypeList(doctype) }
+        return .filteredList(doctype: doctype, conditions: activeFilters(meta: loaded.meta))
     }
 
     private var countDetail: String? {

@@ -290,6 +290,67 @@ final class DeskURLTests: XCTestCase {
             "https://erp.example.com/app/query-report/Profit%20and%20Loss%20Statement")
     }
 
+    func testQueryReportCarriesFilters() {
+        // Desk's own bookmark shape: sorted keys, MultiSelectList arrays as
+        // JSON, checks as 1/0 (an explicit 0 kept), empty values dropped.
+        let url = DeskURL.queryReport(
+            base: base, reportName: "General Ledger",
+            filters: [
+                "company": .string("Acme & Co"),
+                "from_date": .string("2026-01-01"),
+                "account": .array([.string("1100 - Cash + Bank - AC")]),
+                "include_default_book_entries": .int(0),
+                "project": .array([]),
+                "finance_book": .string(""),
+                "party": .null,
+            ])
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://erp.example.com/app/query-report/General%20Ledger"
+                + "?account=%5B%221100%20-%20Cash%20%2B%20Bank%20-%20AC%22%5D"
+                + "&company=Acme%20%26%20Co&from_date=2026-01-01"
+                + "&include_default_book_entries=0")
+        // URLSearchParams (Desk's reader) sees the original values.
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(
+            items?.first { $0.name == "account" }?.value, #"["1100 - Cash + Bank - AC"]"#)
+        XCTAssertEqual(items?.first { $0.name == "company" }?.value, "Acme & Co")
+
+        XCTAssertEqual(
+            DeskURL.queryReport(base: base, reportName: "Trial Balance", filters: [:])
+                .absoluteString,
+            "https://erp.example.com/app/query-report/Trial%20Balance")
+    }
+
+    func testListCarriesFilters() {
+        // Desk's list URL shape: equality bare, other operators as
+        // ["op",value], a field repeated per condition, in filter order.
+        let url = DeskURL.list(
+            base: base, doctype: "Sales Invoice",
+            filters: [
+                ListFilter("customer", "=", .string("Acme & Co")),
+                ListFilter("posting_date", ">=", .string("2026-01-01")),
+                ListFilter("posting_date", "<=", .string("2026-03-31")),
+                ListFilter("status", "in", .array([.string("Paid"), .string("Overdue")])),
+                ListFilter("remarks", "=", .string("[draft]")),
+            ])
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(url.path(), "/app/sales-invoice")
+        XCTAssertEqual(items.map(\.name), [
+            "customer", "posting_date", "posting_date", "status", "remarks",
+        ])
+        XCTAssertEqual(items.map(\.value), [
+            "Acme & Co", #"[">=","2026-01-01"]"#, #"["<=","2026-03-31"]"#,
+            #"["in",["Paid","Overdue"]]"#, #"["=","[draft]"]"#,
+        ])
+        XCTAssertFalse(url.absoluteString.contains("+"))
+
+        // No filters: Desk clears the ones it remembered for this list.
+        XCTAssertEqual(
+            DeskURL.list(base: base, doctype: "Sales Invoice", filters: []).absoluteString,
+            "https://erp.example.com/app/sales-invoice?reset_filters=1")
+    }
+
     func testNameNeedingEncoding() {
         // Account names routinely contain spaces and can contain slashes;
         // both must stay inside one path component.

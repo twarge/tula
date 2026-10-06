@@ -70,7 +70,9 @@ struct ReportScreen: View {
                 PDFExportToolbar(
                     title: descriptor.title, subtitle: pdfSubtitle,
                     result: loadedResult, fallbackCurrency: model.fallbackCurrencyCode)
-                OpenInDeskToolbar(route: .report(descriptor), placement: .demotedAction)
+                OpenInDeskToolbar(
+                    route: .queryReport(name: descriptor.name, extra: requestFilters),
+                    placement: .demotedAction)
                 RefreshToolbar(lastUpdated: lastUpdated, placement: .demotedAction) {
                     refreshToken += 1
                 }
@@ -281,6 +283,20 @@ struct ReportScreen: View {
             .filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
+    /// The filters the report runs with — also what Open in Desk carries,
+    /// so Desk opens with the same selection.
+    private var requestFilters: [String: FrappeValue] {
+        var filters = descriptor.filters(for: model.filterState)
+        if isGeneralLedger {
+            glState.apply(to: &filters)
+        } else {
+            for (key, value) in extra {
+                filters[key] = value
+            }
+        }
+        return filters
+    }
+
     private func load() async {
         // Keep showing current content during a refresh; only blank to a
         // spinner when there's nothing on screen yet.
@@ -291,15 +307,8 @@ struct ReportScreen: View {
             return
         }
         do {
-            var filters = descriptor.filters(for: model.filterState)
-            if isGeneralLedger {
-                glState.apply(to: &filters)
-            } else {
-                for (key, value) in extra {
-                    filters[key] = value
-                }
-            }
-            let result = try await model.dataSource.runReport(descriptor.name, filters: filters)
+            let result = try await model.dataSource.runReport(
+                descriptor.name, filters: requestFilters)
             state = .loaded(result)
             lastUpdated = Date()
             model.cache.setScreen(cacheKey, result)

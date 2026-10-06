@@ -60,7 +60,8 @@ struct GenericReportScreen: View {
                     title: reportName, subtitle: pdfSubtitle,
                     result: loadedResult, fallbackCurrency: model.fallbackCurrencyCode)
                 OpenInDeskToolbar(
-                    route: .queryReport(name: reportName, extra: [:]), placement: .demotedAction)
+                    route: .queryReport(name: reportName, extra: wireFilters()),
+                    placement: .demotedAction)
                 RefreshToolbar(lastUpdated: lastUpdated, placement: .demotedAction) {
                     refreshToken += 1
                 }
