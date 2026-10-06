@@ -443,8 +443,8 @@ struct ReportFiltersInspector: View {
     }
 }
 
-/// Where the macOS report screens remember whether the filter inspector is
-/// open.
+/// Where the macOS report and tree screens remember whether the filter
+/// inspector is open.
 let reportFiltersShownKey = "reportFiltersShown"
 
 extension View {

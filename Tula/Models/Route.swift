@@ -17,7 +17,8 @@ enum Route: Hashable {
     case reportBrowser
     case workspace(String)
     case doctypeList(String)
-    case tree(String)
+    /// A tree view, optionally under Desk's tree filters (`company`).
+    case tree(String, filters: [String: String] = [:])
     /// A DocType list pre-filtered by equality filters (Dashboard-tab
     /// connection routes; may carry several, e.g. party + party_type).
     case linkedList(doctype: String, filters: [String: String])
@@ -48,7 +49,7 @@ enum Route: Hashable {
             return name
         case .doctypeList(let doctype):
             return "\(doctype) · List"
-        case .tree(let doctype):
+        case .tree(let doctype, _):
             return "\(doctype) · Tree"
         case .linkedList(let doctype, _), .filteredList(let doctype, _):
             return "\(doctype) · Filtered List"
@@ -74,8 +75,10 @@ enum Route: Hashable {
             return "workspace|\(name)"
         case .doctypeList(let doctype):
             return "list|\(doctype)"
-        case .tree(let doctype):
-            return "tree|\(doctype)"
+        case .tree(let doctype, let filters):
+            let filterKey = filters.keys.sorted().map { "\($0)=\(filters[$0] ?? "")" }
+                .joined(separator: "&")
+            return filterKey.isEmpty ? "tree|\(doctype)" : "tree|\(doctype)|\(filterKey)"
         case .linkedList(let doctype, let filters):
             let filterKey = filters.keys.sorted().map { "\($0)=\(filters[$0] ?? "")" }
                 .joined(separator: "&")

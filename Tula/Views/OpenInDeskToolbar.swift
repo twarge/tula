@@ -4,7 +4,7 @@ import SwiftUI
 /// "Open in Desk": jumps from any native screen to the same page in the
 /// server's web UI. Route → URL is a direct translation because the Route
 /// enum mirrors Desk's URL scheme (ARCHITECTURE.md §5); report options and
-/// list filters become Desk's filter query string, so report and list
+/// list and tree filters become Desk's filter query string, so those
 /// screens pass the filters they run with and Desk opens with the same
 /// selection. Hidden in demo mode.
 struct OpenInDeskToolbar: ToolbarContent {
@@ -40,8 +40,8 @@ struct OpenInDeskToolbar: ToolbarContent {
             return DeskURL.workspace(base: base, name: name)
         case .doctypeList(let doctype):
             return DeskURL.list(base: base, doctype: doctype)
-        case .tree(let doctype):
-            return DeskURL.tree(base: base, doctype: doctype)
+        case .tree(let doctype, let filters):
+            return DeskURL.tree(base: base, doctype: doctype, filters: filters)
         case .linkedList(let doctype, let filters):
             return DeskURL.list(
                 base: base, doctype: doctype,

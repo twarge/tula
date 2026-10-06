@@ -174,6 +174,7 @@ enum DemoFixtures {
                 {"fieldname": "cb1", "fieldtype": "Column Break"},
                 {"fieldname": "tax_rate", "label": "Tax Rate", "fieldtype": "Percent"},
                 {"fieldname": "freeze_account", "label": "Frozen", "fieldtype": "Select", "options": "No\nYes"},
+                {"fieldname": "disabled", "label": "Disable", "fieldtype": "Check"},
                 {"fieldname": "balance_must_be", "label": "Balance must be", "fieldtype": "Select", "options": "\nDebit\nCredit"},
                 {"fieldname": "lft", "label": "Left", "fieldtype": "Int", "hidden": 1},
                 {"fieldname": "rgt", "label": "Right", "fieldtype": "Int", "hidden": 1}
@@ -186,22 +187,22 @@ enum DemoFixtures {
     static let accountList = #"""
         {
           "data": [
-            {"name": "Income - WPL", "account_name": "Income", "root_type": "Income", "is_group": 1, "parent_account": "", "lft": 1},
-            {"name": "Direct Income - WPL", "account_name": "Direct Income", "root_type": "Income", "is_group": 1, "parent_account": "Income - WPL", "lft": 2},
-            {"name": "Sales - WPL", "account_name": "Sales", "account_number": "4110", "root_type": "Income", "is_group": 0, "parent_account": "Direct Income - WPL", "lft": 3},
-            {"name": "Service - WPL", "account_name": "Service", "account_number": "4120", "root_type": "Income", "is_group": 0, "parent_account": "Direct Income - WPL", "lft": 5},
-            {"name": "Expenses - WPL", "account_name": "Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "", "lft": 10},
-            {"name": "Direct Expenses - WPL", "account_name": "Direct Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "Expenses - WPL", "lft": 11},
-            {"name": "Cost of Goods Sold - WPL", "account_name": "Cost of Goods Sold", "account_number": "5111", "root_type": "Expense", "is_group": 0, "parent_account": "Direct Expenses - WPL", "lft": 12},
-            {"name": "Indirect Expenses - WPL", "account_name": "Indirect Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "Expenses - WPL", "lft": 14},
-            {"name": "Salaries and Wages - WPL", "account_name": "Salaries and Wages", "account_number": "5211", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 15},
-            {"name": "Rent - WPL", "account_name": "Rent", "account_number": "5226", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 17},
-            {"name": "Utilities - WPL", "account_name": "Utilities", "account_number": "5230", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 19},
-            {"name": "Marketing - WPL", "account_name": "Marketing", "account_number": "5232", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "lft": 21},
-            {"name": "Application of Funds (Assets) - WPL", "account_name": "Application of Funds (Assets)", "root_type": "Asset", "is_group": 1, "parent_account": "", "lft": 30},
-            {"name": "Bank Accounts - WPL", "account_name": "Bank Accounts", "account_number": "1110", "root_type": "Asset", "is_group": 0, "parent_account": "Application of Funds (Assets) - WPL", "lft": 31},
-            {"name": "Accounts Receivable - WPL", "account_name": "Accounts Receivable", "account_number": "1310", "root_type": "Asset", "is_group": 0, "parent_account": "Application of Funds (Assets) - WPL", "lft": 33},
-            {"name": "Accounts Payable - WPL", "account_name": "Accounts Payable", "account_number": "2110", "root_type": "Liability", "is_group": 0, "parent_account": "", "lft": 40}
+            {"name": "Income - WPL", "account_name": "Income", "root_type": "Income", "is_group": 1, "parent_account": "", "company": "Wind Power LLC", "lft": 1},
+            {"name": "Direct Income - WPL", "account_name": "Direct Income", "root_type": "Income", "is_group": 1, "parent_account": "Income - WPL", "company": "Wind Power LLC", "lft": 2},
+            {"name": "Sales - WPL", "account_name": "Sales", "account_number": "4110", "root_type": "Income", "is_group": 0, "parent_account": "Direct Income - WPL", "company": "Wind Power LLC", "lft": 3},
+            {"name": "Service - WPL", "account_name": "Service", "account_number": "4120", "root_type": "Income", "is_group": 0, "parent_account": "Direct Income - WPL", "company": "Wind Power LLC", "lft": 5},
+            {"name": "Expenses - WPL", "account_name": "Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "", "company": "Wind Power LLC", "lft": 10},
+            {"name": "Direct Expenses - WPL", "account_name": "Direct Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "Expenses - WPL", "company": "Wind Power LLC", "lft": 11},
+            {"name": "Cost of Goods Sold - WPL", "account_name": "Cost of Goods Sold", "account_number": "5111", "root_type": "Expense", "is_group": 0, "parent_account": "Direct Expenses - WPL", "company": "Wind Power LLC", "lft": 12},
+            {"name": "Indirect Expenses - WPL", "account_name": "Indirect Expenses", "root_type": "Expense", "is_group": 1, "parent_account": "Expenses - WPL", "company": "Wind Power LLC", "lft": 14},
+            {"name": "Salaries and Wages - WPL", "account_name": "Salaries and Wages", "account_number": "5211", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "company": "Wind Power LLC", "lft": 15},
+            {"name": "Rent - WPL", "account_name": "Rent", "account_number": "5226", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "company": "Wind Power LLC", "lft": 17},
+            {"name": "Utilities - WPL", "account_name": "Utilities", "account_number": "5230", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "company": "Wind Power LLC", "lft": 19},
+            {"name": "Marketing - WPL", "account_name": "Marketing", "account_number": "5232", "root_type": "Expense", "is_group": 0, "parent_account": "Indirect Expenses - WPL", "company": "Wind Power LLC", "lft": 21},
+            {"name": "Application of Funds (Assets) - WPL", "account_name": "Application of Funds (Assets)", "root_type": "Asset", "is_group": 1, "parent_account": "", "company": "Wind Power LLC", "lft": 30},
+            {"name": "Bank Accounts - WPL", "account_name": "Bank Accounts", "account_number": "1110", "root_type": "Asset", "is_group": 0, "parent_account": "Application of Funds (Assets) - WPL", "company": "Wind Power LLC", "lft": 31},
+            {"name": "Accounts Receivable - WPL", "account_name": "Accounts Receivable", "account_number": "1310", "root_type": "Asset", "is_group": 0, "parent_account": "Application of Funds (Assets) - WPL", "company": "Wind Power LLC", "lft": 33},
+            {"name": "Accounts Payable - WPL", "account_name": "Accounts Payable", "account_number": "2110", "root_type": "Liability", "is_group": 0, "parent_account": "", "company": "Wind Power LLC", "lft": 40}
           ]
         }
         """#

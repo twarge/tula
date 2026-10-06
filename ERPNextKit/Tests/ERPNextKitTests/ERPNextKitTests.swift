@@ -345,6 +345,14 @@ final class DeskURLTests: XCTestCase {
         ])
         XCTAssertFalse(url.absoluteString.contains("+"))
 
+        XCTAssertEqual(
+            DeskURL.tree(base: base, doctype: "Account", filters: ["company": "Acme & Co"])
+                .absoluteString,
+            "https://erp.example.com/app/account/view/tree?company=Acme%20%26%20Co")
+        XCTAssertEqual(
+            DeskURL.tree(base: base, doctype: "Account").absoluteString,
+            "https://erp.example.com/app/account/view/tree")
+
         // No filters: Desk clears the ones it remembered for this list.
         XCTAssertEqual(
             DeskURL.list(base: base, doctype: "Sales Invoice", filters: []).absoluteString,

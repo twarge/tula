@@ -41,9 +41,15 @@ public enum DeskURL {
         list(base: base, doctype: doctype).appending(component: name)
     }
 
-    /// `{base}/app/{doctype-slug}/view/tree` — the tree view.
-    public static func tree(base: URL, doctype: String) -> URL {
-        list(base: base, doctype: doctype).appending(path: "view/tree")
+    /// `{base}/app/{doctype-slug}/view/tree?{filters}` — the tree view.
+    /// Desk defaults each tree filter (`company` on the Chart of Accounts)
+    /// from the matching query param (`make_filters`).
+    public static func tree(base: URL, doctype: String, filters: [String: String] = [:]) -> URL {
+        withQuery(
+            list(base: base, doctype: doctype).appending(path: "view/tree"),
+            filters.keys.sorted().compactMap { key in
+                filters[key].flatMap { $0.isEmpty ? nil : (key, $0) }
+            })
     }
 
     /// `{base}/app/{workspace-slug}` — a workspace page.

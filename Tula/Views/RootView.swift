@@ -165,8 +165,8 @@ struct RouteView: View {
                 WorkspaceScreen(workspaceName: name)
             case .doctypeList(let doctype):
                 ListScreen(doctype: doctype)
-            case .tree(let doctype):
-                TreeScreen(doctype: doctype)
+            case .tree(let doctype, let filters):
+                TreeScreen(doctype: doctype, company: filters["company"])
             case .linkedList(let doctype, let filters):
                 ListScreen(doctype: doctype, initialFilters: filters)
             case .filteredList(let doctype, let conditions):
