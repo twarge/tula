@@ -8,9 +8,10 @@ import SwiftUI
 #endif
 
 /// A report's `message` rendered as Desk shows it above the grid: the
-/// heading larger, body lines in the primary color, `text-muted` notes
-/// secondary, the `text-warning` review list in amber, and links live —
-/// Desk form and report links open the native screen, others the browser.
+/// heading larger and bold, body lines in the primary color, `text-muted`
+/// notes secondary, the `text-warning` review list in amber, and links
+/// live — Desk form and report links open the native screen, others the
+/// browser.
 struct ReportMessageView: View {
     let message: HTMLRichText
 
@@ -33,6 +34,7 @@ struct ReportMessageView: View {
         case .heading(let level, let runs):
             Text(attributed(runs))
                 .font(Self.headingFont(level))
+                .fontWeight(.bold)
                 .padding(.bottom, 6)
         case .paragraph(let runs):
             Text(attributed(runs))
