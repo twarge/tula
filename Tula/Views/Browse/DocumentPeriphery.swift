@@ -349,6 +349,7 @@ struct PeripheryBar: View {
     var documentRaw: [String: FrappeValue] = [:]
     var isEditing: Bool = false
     var onEdit: (() -> Void)? = nil
+    var onAmend: (() -> Void)? = nil
     var onMutate: () -> Void = {}
 
     @Environment(AppModel.self) private var model
@@ -364,7 +365,7 @@ struct PeripheryBar: View {
                 LifecycleCluster(
                     doctype: doctype, name: documentName, documentRaw: documentRaw,
                     periphery: periphery, isEditing: isEditing, onEdit: onEdit,
-                    onMutate: onMutate)
+                    onAmend: onAmend, onMutate: onMutate)
                     .layoutPriority(1)
                 if !actions.isEmpty && periphery.hasBarContent {
                     Divider().frame(height: 16)

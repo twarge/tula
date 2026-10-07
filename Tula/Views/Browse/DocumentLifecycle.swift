@@ -14,6 +14,9 @@ struct LifecycleCluster: View {
     /// Enters the W3 edit session; nil when nothing on the document is
     /// editable at its docstatus.
     var onEdit: (() -> Void)? = nil
+    /// Opens the cancelled document's amended copy for editing in place;
+    /// nil hides Amend.
+    var onAmend: (() -> Void)? = nil
     var onMutate: () -> Void = {}
 
     @Environment(AppModel.self) private var model
@@ -21,7 +24,6 @@ struct LifecycleCluster: View {
     @State private var renameRequested = false
     @State private var newName = ""
     @State private var busy = false
-    @State private var showingAmend = false
     @State private var errorMessage: String?
 
     private enum Pending: Identifiable {
@@ -74,10 +76,11 @@ struct LifecycleCluster: View {
                         .controlSize(.small)
                         .tint(.red)
                 }
-                if periphery.docstatus == 2 {
+                if periphery.docstatus == 2, let onAmend {
                     // Desk's amend: a draft copy carrying amended_from,
-                    // opened for editing before anything hits the server.
-                    Button("Amend") { showingAmend = true }
+                    // editable in this same form before anything hits the
+                    // server.
+                    Button("Amend", action: onAmend)
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
@@ -130,15 +133,6 @@ struct LifecycleCluster: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Sets a new ID for this \(doctype). Links elsewhere are updated by the server.")
-            }
-            .sheet(isPresented: $showingAmend) {
-                NewDocumentSheet(
-                    doctype: doctype,
-                    seed: WriteSession.draftCopy(
-                        of: documentRaw, doctype: doctype, amendedFrom: name)
-                ) { created in
-                    model.pendingRoute = .document(doctype: doctype, name: created)
-                }
             }
             .alert(
                 "Couldn't Complete",

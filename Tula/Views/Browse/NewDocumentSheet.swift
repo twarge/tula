@@ -5,13 +5,11 @@ import SwiftUI
 /// draft, rendered by the same generic form chain as W3 editing. Two
 /// presentations of one sheet: Quick Entry (Desk's compact-create — the
 /// mandatory + `allow_in_quick_entry` fields) with an Edit Full Form
-/// escape hatch, and the full blank form. Amend reuses it with a seed
-/// copied from the cancelled document. Naming stays server-side; a
+/// escape hatch, and the full blank form. (Amend edits its copy in place on
+/// `DocumentScreen`, as Desk does.) Naming stays server-side; a
 /// prompt-named DocType gets an ID field feeding `__newname`.
 struct NewDocumentSheet: View {
     let doctype: String
-    /// Pre-filled draft (the amend seed); empty for a blank document.
-    var seed: [String: FrappeValue] = [:]
     var onCreated: (String) -> Void = { _ in }
 
     @Environment(AppModel.self) private var model
@@ -128,14 +126,12 @@ struct NewDocumentSheet: View {
                 meta: meta,
                 childMetas: bundle.childMetas,
                 gridColumns: bundle.gridColumns)
-            var draft = seed.isEmpty ? Self.seedDraft(meta: meta) : seed
+            var draft = Self.seedDraft(meta: meta)
             draft["doctype"] = .string(doctype)
             draft["docstatus"] = .int(0)
             session = EditSession(document: Document(raw: draft), docstatus: 0)
-            // Quick Entry only makes sense for blank creates with a curated
-            // field set; amends open the full form.
-            quickEntry = meta.quickEntry && seed.isEmpty
-                && !Self.quickEntryFieldRaws(meta).isEmpty
+            // Quick Entry only makes sense with a curated field set.
+            quickEntry = meta.quickEntry && !Self.quickEntryFieldRaws(meta).isEmpty
             state = .loaded(loaded)
         } catch {
             state = .failed(error.localizedDescription)

@@ -15,6 +15,10 @@ struct DocumentScreen: View {
     /// Non-nil while a W3 edit is in progress; auto-refresh pauses so the
     /// draft's `modified` token (the optimistic lock) stays coherent.
     @State private var editSession: EditSession?
+    /// While amending, the unsaved copy the form shows and `editSession`
+    /// edits — Desk's amend, in place rather than in a sheet. Save inserts
+    /// it as a new draft and opens that.
+    @State private var amendment: Document?
     /// The TULA_EDIT_PREVIEW hook fires once per screen, so a save or
     /// discard lands back in read mode like a normal launch.
     @State private var didPreviewEdit = false
@@ -52,12 +56,17 @@ struct DocumentScreen: View {
                             meta: loaded.meta,
                             docstatus: loaded.periphery.docstatus ?? 0)
                             ? { startEditing(loaded) } : nil,
+                        onAmend: { startAmending(loaded) },
                         onMutate: { refreshToken += 1 })
                     if let session = editSession {
                         EditingBar(
                             session: session,
+                            title: amendment == nil ? "Editing" : "Amending \(name) · Not Saved",
                             onSave: { save(session) },
-                            onDiscard: { editSession = nil },
+                            onDiscard: {
+                                editSession = nil
+                                amendment = nil
+                            },
                             onReload: {
                                 editSession = nil
                                 refreshToken += 1
@@ -65,19 +74,25 @@ struct DocumentScreen: View {
                     }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
+                            // An amendment is a new document: no dashboard,
+                            // comments, or activity of its own yet.
                             DocumentFormView(
                                 meta: loaded.meta, childMetas: loaded.childMetas,
-                                document: loaded.document, gridColumns: loaded.gridColumns,
-                                dashboard: loaded.periphery.connections.isEmpty
-                                    && loaded.periphery.stats.isEmpty
-                                    && loaded.periphery.reportLinks.isEmpty
+                                document: amendment ?? loaded.document,
+                                gridColumns: loaded.gridColumns,
+                                dashboard: amendment != nil
+                                    || loaded.periphery.connections.isEmpty
+                                        && loaded.periphery.stats.isEmpty
+                                        && loaded.periphery.reportLinks.isEmpty
                                     ? nil
                                     : DashboardTabView(
                                         periphery: loaded.periphery, documentName: name))
-                            PeripheryTrailingSections(
-                                periphery: loaded.periphery, documentName: name,
-                                doctype: doctype,
-                                onMutate: { refreshToken += 1 })
+                            if amendment == nil {
+                                PeripheryTrailingSections(
+                                    periphery: loaded.periphery, documentName: name,
+                                    doctype: doctype,
+                                    onMutate: { refreshToken += 1 })
+                            }
                         }
                         .padding()
                         .frame(maxWidth: 900, alignment: .leading)
@@ -132,6 +147,18 @@ struct DocumentScreen: View {
         editSession = session
     }
 
+    /// Desk's Amend: the cancelled document's copy, carrying
+    /// `amended_from`, opens as an unsaved draft in this form.
+    private func startAmending(_ loaded: Loaded) {
+        var raw = WriteSession.draftCopy(
+            of: loaded.document.raw, doctype: doctype, amendedFrom: name)
+        raw["doctype"] = .string(doctype)
+        raw["docstatus"] = .int(0)
+        let copy = Document(raw: raw)
+        amendment = copy
+        editSession = EditSession(document: copy, docstatus: 0)
+    }
+
     private func save(_ session: EditSession) {
         guard let writeSession = model.writeSession else {
             session.error = "Writes are locked — open the lock in the toolbar first."
@@ -144,6 +171,13 @@ struct DocumentScreen: View {
             do {
                 var draft = session.draft
                 draft["doctype"] = .string(doctype)
+                if amendment != nil {
+                    let created = try await writeSession.insert(documentRaw: draft)
+                    editSession = nil
+                    amendment = nil
+                    model.pendingRoute = .document(doctype: doctype, name: created)
+                    return
+                }
                 try await writeSession.save(
                     documentRaw: draft, submitted: session.docstatus == 1)
                 editSession = nil
@@ -157,6 +191,7 @@ struct DocumentScreen: View {
     }
 
     private var title: String {
+        if amendment != nil { return "New \(doctype)" }
         if case .loaded(let loaded) = state {
             return loaded.document.title(using: loaded.meta)
         }
@@ -218,6 +253,7 @@ struct DocumentScreen: View {
 /// write map).
 private struct EditingBar: View {
     let session: EditSession
+    var title = "Editing"
     let onSave: () -> Void
     let onDiscard: () -> Void
     let onReload: () -> Void
@@ -238,7 +274,7 @@ private struct EditingBar: View {
                 HStack(spacing: 8) {
                     Image(systemName: "pencil.circle.fill")
                         .foregroundStyle(.orange)
-                    Text("Editing")
+                    Text(title)
                         .font(.callout.weight(.semibold))
                     if let error = session.error {
                         Text(error)
