@@ -14,6 +14,13 @@ struct FieldValueView: View {
     /// Links render as navigation; callers inside non-navigable contexts turn
     /// this off to get plain text.
     var linkEnabled = true
+    /// Links show the document quick view on hover (macOS) or long press
+    /// (iOS). Dense grids turn it off: each preview adds hover and popover
+    /// responders that slow scrolling.
+    var quickViewEnabled = true
+    /// Text values are selectable. On macOS each selectable Text is backed
+    /// by its own AppKit view, so report grids turn this off.
+    var selectable = true
     /// Sibling values of the row/document this value came from. Dynamic Links
     /// need them: `options` names the sibling field holding the DocType
     /// (GL's voucher_no → voucher_type).
@@ -38,13 +45,17 @@ struct FieldValueView: View {
 
         case .link where linkTarget != nil, .dynamicLink where linkTarget != nil:
             let target = linkDocument!
-            NavigationLink(value: linkTarget!) {
+            let link = NavigationLink(value: linkTarget!) {
                 Text(value?.nonEmptyString ?? "")
                     .foregroundStyle(.tint)
             }
             .buttonStyle(.plain)
-            .modifier(
-                DocumentQuickViewModifier(doctype: target.doctype, name: target.name))
+            if quickViewEnabled {
+                link.modifier(
+                    DocumentQuickViewModifier(doctype: target.doctype, name: target.name))
+            } else {
+                link
+            }
 
         case .select where isStatusField && value?.nonEmptyString != nil:
             StatusBadge(status: value!.nonEmptyString!)
@@ -82,13 +93,20 @@ struct FieldValueView: View {
             if let table = HTMLTable.firstTable(in: value?.stringValue ?? "") {
                 HTMLTableView(table: table)
             } else {
-                Text(formatted)
-                    .textSelection(.enabled)
+                selectableText
             }
 
         default:
+            selectableText
+        }
+    }
+
+    @ViewBuilder
+    private var selectableText: some View {
+        if selectable {
+            Text(formatted).textSelection(.enabled)
+        } else {
             Text(formatted)
-                .textSelection(.enabled)
         }
     }
 

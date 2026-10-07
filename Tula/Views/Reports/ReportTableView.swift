@@ -22,46 +22,61 @@ struct ReportResultView: View {
     /// nil leaves links inert.
     var cellAction: ((ReportLink) -> ReportCellAction?)? = nil
 
-    /// One vertical scroll view owns the whole body, so the tiles and chart
-    /// scroll away with the rows and the navigation bar's large title
-    /// collapses as it does in Mail. (When a horizontal scroll view came
-    /// first, the bar tracked that one and never collapsed.)
+    /// One scroll view, both axes, owns the whole body: the rows' lazy
+    /// stack then sees the real visible region and builds only the rows on
+    /// screen. (Inside a horizontal scroll view nested in a vertical one,
+    /// the horizontal one was as tall as the report, so every row counted
+    /// as visible and was built — tens of thousands of views on a long GL.)
+    /// The tiles and chart scroll away with the rows and the navigation
+    /// bar's large title collapses as it does in Mail.
     var body: some View {
         GeometryReader { geometry in
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    if showsSummary, !result.summary.isEmpty {
-                        SummaryTilesView(items: result.summary)
-                        Divider()
+            let table = ReportTableView(
+                result: result, fallbackCurrency: fallbackCurrency,
+                viewportWidth: geometry.size.width, drillRoute: drillRoute,
+                cellAction: cellAction)
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(spacing: 0) {
+                        if showsSummary, !result.summary.isEmpty {
+                            SummaryTilesView(items: result.summary)
+                            Divider()
+                        }
+                        if let rich = result.messageHTML.flatMap(HTMLRichText.init(html:)) {
+                            // Desk shows the report's message above the grid:
+                            // a title, notes, review warnings — formatted as
+                            // there.
+                            ReportMessageView(message: rich)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                            Divider()
+                        } else if let message = result.message {
+                            // Report snapshots cached before the HTML was kept.
+                            Text(message)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                            Divider()
+                        }
+                        if showsChart, let chart = result.chart {
+                            ReportChartView(chart: chart)
+                            Divider()
+                        }
                     }
-                    if let rich = result.messageHTML.flatMap(HTMLRichText.init(html:)) {
-                        // Desk shows the report's message above the grid: a
-                        // title, notes, review warnings — formatted as there.
-                        ReportMessageView(message: rich)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                        Divider()
-                    } else if let message = result.message {
-                        // Report snapshots cached before the HTML was kept.
-                        Text(message)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                        Divider()
+                    .frame(width: geometry.size.width)
+                    // Only the grid scrolls sideways; this block holds still
+                    // over the viewport.
+                    .visualEffect { content, proxy in
+                        content.offset(
+                            x: -proxy.frame(in: .scrollView(axis: .horizontal)).minX)
                     }
-                    if showsChart, let chart = result.chart {
-                        ReportChartView(chart: chart)
-                        Divider()
-                    }
-                    ReportTableView(
-                        result: result, fallbackCurrency: fallbackCurrency,
-                        viewportWidth: geometry.size.width, drillRoute: drillRoute,
-                        cellAction: cellAction)
+                    table
                 }
             }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             // No .refreshable here: UIKit's refresh control broke the nested
             // horizontal/vertical scroll geometry. Reports refresh via the
             // toolbar button and the auto-refresh probe.
@@ -97,33 +112,29 @@ struct ReportTableView: View {
             : min(220, max(110, CGFloat(column.width)))
     }
 
-    /// Sideways scrolling for wide tables, inside the report body's vertical
-    /// scroll view (`ReportResultView`).
+    /// The grid inside the report body's two-axis scroll view
+    /// (`ReportResultView`).
     var body: some View {
         let natural = (0..<columns.count).reduce(CGFloat(0)) { $0 + baseWidth($1) }
         let extra = max(0, viewportWidth - natural)
 
-        ScrollView(.horizontal) {
-            VStack(spacing: 0) {
-                headerRow(firstColumnExtra: extra)
-                    // Pinned by hand: a lazy stack's pinned headers only pin
-                    // to the nearest scroll view, the horizontal one here.
-                    // This holds the header at the vertical scroll view's
-                    // top once it would scroll past it.
-                    .visualEffect { content, proxy in
-                        content.offset(
-                            y: max(0, -proxy.frame(in: .scrollView(axis: .vertical)).minY))
-                    }
-                    .zIndex(1)
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(result.rows.enumerated()), id: \.element.id) { index, row in
-                        rowView(row, index: index, firstColumnExtra: extra)
-                    }
+        VStack(spacing: 0) {
+            headerRow(firstColumnExtra: extra)
+                // Pinned by hand rather than with the lazy stack's pinned
+                // section headers: this holds the header at the scroll
+                // view's top once it would scroll past it.
+                .visualEffect { content, proxy in
+                    content.offset(
+                        y: max(0, -proxy.frame(in: .scrollView(axis: .vertical)).minY))
+                }
+                .zIndex(1)
+            LazyVStack(spacing: 0) {
+                ForEach(Array(result.rows.enumerated()), id: \.element.id) { index, row in
+                    rowView(row, index: index, firstColumnExtra: extra)
                 }
             }
-            .frame(width: max(natural, viewportWidth))
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .frame(width: max(natural, viewportWidth))
     }
 
     private func width(_ index: Int, extra: CGFloat) -> CGFloat {
@@ -184,7 +195,7 @@ struct ReportTableView: View {
     @ViewBuilder
     private func cell(row: ReportRow, column: ReportColumn, isFirst: Bool) -> some View {
         if let link = row.link(for: column), let action = cellAction?(link) {
-            linked(plainCell(row: row, column: column, isFirst: isFirst), link: link, action: action)
+            linked(plainCell(row: row, column: column, isFirst: isFirst), action: action)
         } else if isFirst {
             if let drillRoute, let route = drillRoute(row, nil) {
                 NavigationLink(value: route) {
@@ -208,6 +219,8 @@ struct ReportTableView: View {
                 currencyCode: ValueFormatting.currencyCode(
                     options: column.options, rowValues: row.values, fallback: fallbackCurrency),
                 precision: column.precision,
+                quickViewEnabled: false,
+                selectable: false,
                 rowValues: row.values
             )
             .lineLimit(1)
@@ -240,6 +253,7 @@ struct ReportTableView: View {
                     options: column.options, rowValues: row.values, fallback: fallbackCurrency),
                 precision: column.precision,
                 linkEnabled: false,
+                selectable: false,
                 rowValues: row.values
             )
             .lineLimit(1)
@@ -248,19 +262,16 @@ struct ReportTableView: View {
 
     @ViewBuilder
     private func linked<Content: View>(
-        _ content: Content, link: ReportLink, action: ReportCellAction
+        _ content: Content, action: ReportCellAction
     ) -> some View {
         switch action {
         case .navigate(let route):
-            let navigation = NavigationLink(value: route) {
+            // No document quick view here: per-cell hover previews made
+            // the grid lag while scrolling.
+            NavigationLink(value: route) {
                 content.foregroundStyle(.tint).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if case .document(let doctype, let name) = link {
-                navigation.modifier(DocumentQuickViewModifier(doctype: doctype, name: name))
-            } else {
-                navigation
-            }
         case .setFilters(let apply):
             Button(action: apply) {
                 content.foregroundStyle(.tint).contentShape(Rectangle())
