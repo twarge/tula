@@ -14,10 +14,6 @@ struct FieldValueView: View {
     /// Links render as navigation; callers inside non-navigable contexts turn
     /// this off to get plain text.
     var linkEnabled = true
-    /// Links show the document quick view on hover (macOS) or long press
-    /// (iOS). Dense grids turn it off: each preview adds hover and popover
-    /// responders that slow scrolling.
-    var quickViewEnabled = true
     /// Text values are selectable. On macOS each selectable Text is backed
     /// by its own AppKit view, so report grids turn this off.
     var selectable = true
@@ -45,17 +41,13 @@ struct FieldValueView: View {
 
         case .link where linkTarget != nil, .dynamicLink where linkTarget != nil:
             let target = linkDocument!
-            let link = NavigationLink(value: linkTarget!) {
+            NavigationLink(value: linkTarget!) {
                 Text(value?.nonEmptyString ?? "")
                     .foregroundStyle(.tint)
             }
             .buttonStyle(.plain)
-            if quickViewEnabled {
-                link.modifier(
-                    DocumentQuickViewModifier(doctype: target.doctype, name: target.name))
-            } else {
-                link
-            }
+            .modifier(
+                DocumentQuickViewModifier(doctype: target.doctype, name: target.name))
 
         case .select where isStatusField && value?.nonEmptyString != nil:
             StatusBadge(status: value!.nonEmptyString!)

@@ -25,6 +25,8 @@ struct GenericReportScreen: View {
     @State private var state: LoadState<ReportResult> = .loading
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    /// The grid's sort, as on `ReportScreen`.
+    @State private var sort: ReportSort?
     private var display: ReportDisplaySettings
     /// The filter inspector, as on `ReportScreen`: closed by default on iOS,
     /// open by default and remembered on macOS.
@@ -38,9 +40,10 @@ struct GenericReportScreen: View {
         (definitions ?? []).filter { !$0.hidden }
     }
 
-    /// Filters to set or display checkboxes to show.
+    /// Filters to set, rows to sort, or display checkboxes to show.
     private var hasInspectorContent: Bool {
-        !visibleDefinitions.isEmpty || loadedResult?.hasDisplayToggles == true
+        !visibleDefinitions.isEmpty || loadedResult?.rows.isEmpty == false
+            || loadedResult?.hasDisplayToggles == true
     }
 
     /// Open only when there's something to show: a report with neither
@@ -56,7 +59,7 @@ struct GenericReportScreen: View {
             .inspector(isPresented: filtersPresented) {
                 GenericReportFiltersInspector(
                     definitions: visibleDefinitions, values: $values,
-                    report: reportName, result: loadedResult)
+                    report: reportName, result: loadedResult, sort: $sort)
             }
             .navigationTitle(reportName)
             .modifier(ScopeSubtitle(text: pdfSubtitle ?? ""))
@@ -71,7 +74,7 @@ struct GenericReportScreen: View {
                 SearchToolbar()
                 PDFExportToolbar(
                     title: reportName, subtitle: pdfSubtitle,
-                    result: loadedResult, fallbackCurrency: model.fallbackCurrencyCode)
+                    result: loadedResult?.sorted(by: sort), fallbackCurrency: model.fallbackCurrencyCode)
                 OpenInDeskToolbar(
                     route: .queryReport(name: reportName, extra: wireFilters()),
                     placement: .demotedAction)
@@ -103,9 +106,9 @@ struct GenericReportScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let result):
             ReportResultView(
-                result: result, fallbackCurrency: model.fallbackCurrencyCode,
+                result: result.sorted(by: sort), fallbackCurrency: model.fallbackCurrencyCode,
                 showsSummary: display.showsSummary, showsChart: display.showsChart,
-                drillRoute: drillRoute(for:column:), cellAction: cellAction(for:))
+                sort: $sort, drillRoute: drillRoute(for:column:), cellAction: cellAction(for:))
         }
     }
 
@@ -292,9 +295,10 @@ struct GenericReportScreen: View {
 struct GenericReportFiltersInspector: View {
     let definitions: [ReportFilterDefinition]
     @Binding var values: [String: String]
-    /// The report on screen, for its display checkboxes.
+    /// The report on screen, for its sort columns and display checkboxes.
     let report: String
     let result: ReportResult?
+    @Binding var sort: ReportSort?
 
     var body: some View {
         ScrollView {
@@ -302,8 +306,12 @@ struct GenericReportFiltersInspector: View {
                 ForEach(definitions) { definition in
                     control(for: definition)
                 }
-                if let result, result.hasDisplayToggles {
+                if let result, !result.rows.isEmpty {
                     if !definitions.isEmpty { Divider() }
+                    ReportSortFields(columns: result.visibleColumns, sort: $sort)
+                }
+                if let result, result.hasDisplayToggles {
+                    if !definitions.isEmpty || !result.rows.isEmpty { Divider() }
                     ReportDisplayToggles(report: report, result: result)
                 }
             }

@@ -17,6 +17,9 @@ struct ReportScreen: View {
     @State private var glState: GeneralLedgerFilterState
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+    /// The grid's sort, from a column header or the inspector; nil is
+    /// the report's own order. Kept for this screen only, as in Desk.
+    @State private var sort: ReportSort?
     private var display: ReportDisplaySettings
     /// The filter inspector: closed by default on iOS (a sheet on a phone);
     /// open by default on macOS, where Desk keeps report filters on screen,
@@ -60,7 +63,8 @@ struct ReportScreen: View {
         content
             .inspector(isPresented: $showingFilters) {
                 ReportFiltersInspector(
-                    descriptor: descriptor, glState: $glState, result: loadedResult)
+                    descriptor: descriptor, glState: $glState, result: loadedResult,
+                    sort: $sort)
             }
             .navigationTitle(descriptor.title)
             .modifier(ScopeSubtitle(text: scopeSubtitle))
@@ -72,7 +76,7 @@ struct ReportScreen: View {
                 SearchToolbar()
                 PDFExportToolbar(
                     title: descriptor.title, subtitle: pdfSubtitle,
-                    result: loadedResult, fallbackCurrency: model.fallbackCurrencyCode)
+                    result: loadedResult?.sorted(by: sort), fallbackCurrency: model.fallbackCurrencyCode)
                 OpenInDeskToolbar(
                     route: .queryReport(name: descriptor.name, extra: requestFilters),
                     placement: .demotedAction)
@@ -128,9 +132,10 @@ struct ReportScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let result):
             ReportResultView(
-                result: result,
+                result: result.sorted(by: sort),
                 fallbackCurrency: model.fallbackCurrencyCode,
                 showsSummary: display.showsSummary, showsChart: display.showsChart,
+                sort: $sort,
                 drillRoute: drillRoute(for:column:))
         }
     }
@@ -362,8 +367,9 @@ struct ReportFiltersInspector: View {
     /// The General Ledger's screen-local, drill-seeded filter state;
     /// unused by the other statements.
     @Binding var glState: GeneralLedgerFilterState
-    /// The report on screen, for its display checkboxes.
+    /// The report on screen, for its sort columns and display checkboxes.
     let result: ReportResult?
+    @Binding var sort: ReportSort?
     @Environment(AppModel.self) private var model
 
     private var isGeneralLedger: Bool {
@@ -426,6 +432,10 @@ struct ReportFiltersInspector: View {
                     Divider()
                     AdvancedReportFields(descriptor: descriptor)
                 }
+                if let result, !result.rows.isEmpty {
+                    Divider()
+                    ReportSortFields(columns: result.visibleColumns, sort: $sort)
+                }
                 if let result, result.hasDisplayToggles {
                     Divider()
                     ReportDisplayToggles(report: descriptor.name, result: result)
@@ -475,6 +485,51 @@ extension ReportResult {
     /// Whether the filter inspector offers display checkboxes for this
     /// result.
     var hasDisplayToggles: Bool { !summary.isEmpty || chart != nil }
+}
+
+/// The filter inspector's sort: any visible column, either direction, or
+/// the report's own order — the same sort the column headers set.
+struct ReportSortFields: View {
+    let columns: [ReportColumn]
+    @Binding var sort: ReportSort?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            labeled("Sort By") {
+                Picker(
+                    "Sort By",
+                    selection: Binding(
+                        get: { sort?.fieldname },
+                        set: { fieldname in
+                            sort = fieldname.map {
+                                ReportSort(fieldname: $0, ascending: sort?.ascending ?? true)
+                            }
+                        })
+                ) {
+                    Text("Report Order").tag(String?.none)
+                    ForEach(columns) { column in
+                        Text(column.label).tag(Optional(column.fieldname))
+                    }
+                }
+                .labelsHidden()
+            }
+            if let current = sort {
+                labeled("Order") {
+                    Picker(
+                        "Order",
+                        selection: Binding(
+                            get: { current.ascending },
+                            set: { sort?.ascending = $0 })
+                    ) {
+                        Text("Ascending").tag(true)
+                        Text("Descending").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+            }
+        }
+    }
 }
 
 /// The filter inspector's display checkboxes, one per part the report

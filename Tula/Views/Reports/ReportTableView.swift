@@ -14,6 +14,9 @@ struct ReportResultView: View {
     /// (`ReportDisplaySettings`).
     var showsSummary = true
     var showsChart = true
+    /// The grid's sort (`result` arrives already sorted); headers set it.
+    /// Nil leaves the headers inert.
+    var sort: Binding<ReportSort?>? = nil
     /// Row + column → destination. A nil column means the row's label cell
     /// (whole-span drill); an amount cell passes its own column so the
     /// destination can narrow to that period.
@@ -33,7 +36,7 @@ struct ReportResultView: View {
         GeometryReader { geometry in
             let table = ReportTableView(
                 result: result, fallbackCurrency: fallbackCurrency,
-                viewportWidth: geometry.size.width, drillRoute: drillRoute,
+                viewportWidth: geometry.size.width, sort: sort, drillRoute: drillRoute,
                 cellAction: cellAction)
             ScrollView([.vertical, .horizontal]) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -97,6 +100,8 @@ struct ReportTableView: View {
     /// The enclosing scroll view's width: the first column absorbs any
     /// slack, and wider tables scroll sideways.
     let viewportWidth: CGFloat
+    /// Header clicks cycle a column ascending → descending → report order.
+    var sort: Binding<ReportSort?>? = nil
     /// When provided, first-column cells navigate (P&L account → GL) and
     /// amount cells navigate scoped to their own column's period.
     var drillRoute: ((ReportRow, ReportColumn?) -> Route?)? = nil
@@ -144,19 +149,59 @@ struct ReportTableView: View {
     private func headerRow(firstColumnExtra extra: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                Text(column.label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                headerCell(column)
                     .padding(.horizontal, 12)
                     .frame(
                         width: width(index, extra: extra),
                         alignment: column.alignsTrailing ? .trailing : .leading)
+                    .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 8)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// A column title, and with a sort binding a button that sorts by the
+    /// column. The sorted column's title turns primary with a chevron,
+    /// leading on number columns so the title stays flush with the values.
+    @ViewBuilder
+    private func headerCell(_ column: ReportColumn) -> some View {
+        let direction = sort?.wrappedValue.flatMap {
+            $0.fieldname == column.fieldname ? $0.ascending : nil
+        }
+        let title = HStack(spacing: 3) {
+            if column.alignsTrailing { chevron(direction) }
+            Text(column.label)
+                .lineLimit(1)
+            if !column.alignsTrailing { chevron(direction) }
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(direction == nil ? .secondary : .primary)
+
+        if let sort {
+            Button {
+                sort.wrappedValue = ReportSort.next(
+                    after: sort.wrappedValue, column: column.fieldname)
+            } label: {
+                title.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(column.label)
+            .accessibilityValue(
+                direction.map { $0 ? "Sorted ascending" : "Sorted descending" } ?? "")
+            .accessibilityHint("Sorts the report by this column")
+        } else {
+            title
+        }
+    }
+
+    @ViewBuilder
+    private func chevron(_ ascending: Bool?) -> some View {
+        if let ascending {
+            Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                .imageScale(.small)
+        }
     }
 
     @ViewBuilder
@@ -195,7 +240,7 @@ struct ReportTableView: View {
     @ViewBuilder
     private func cell(row: ReportRow, column: ReportColumn, isFirst: Bool) -> some View {
         if let link = row.link(for: column), let action = cellAction?(link) {
-            linked(plainCell(row: row, column: column, isFirst: isFirst), action: action)
+            linked(plainCell(row: row, column: column, isFirst: isFirst), link: link, action: action)
         } else if isFirst {
             if let drillRoute, let route = drillRoute(row, nil) {
                 NavigationLink(value: route) {
@@ -219,7 +264,6 @@ struct ReportTableView: View {
                 currencyCode: ValueFormatting.currencyCode(
                     options: column.options, rowValues: row.values, fallback: fallbackCurrency),
                 precision: column.precision,
-                quickViewEnabled: false,
                 selectable: false,
                 rowValues: row.values
             )
@@ -262,16 +306,19 @@ struct ReportTableView: View {
 
     @ViewBuilder
     private func linked<Content: View>(
-        _ content: Content, action: ReportCellAction
+        _ content: Content, link: ReportLink, action: ReportCellAction
     ) -> some View {
         switch action {
         case .navigate(let route):
-            // No document quick view here: per-cell hover previews made
-            // the grid lag while scrolling.
-            NavigationLink(value: route) {
+            let navigation = NavigationLink(value: route) {
                 content.foregroundStyle(.tint).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if case .document(let doctype, let name) = link {
+                navigation.modifier(DocumentQuickViewModifier(doctype: doctype, name: name))
+            } else {
+                navigation
+            }
         case .setFilters(let apply):
             Button(action: apply) {
                 content.foregroundStyle(.tint).contentShape(Rectangle())
