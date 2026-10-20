@@ -11,93 +11,120 @@ struct SettingsView: View {
     @State private var apiSecret = ""
     @State private var testResult: TestResult?
     @State private var isTesting = false
+    @FocusState private var focusedField: Field?
 
     private enum TestResult {
         case success(String)
         case failure(String)
     }
 
+    private enum Field {
+        case serverURL, apiKey, apiSecret
+    }
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Toggle("Use demo data", isOn: $useDemo)
-                } footer: {
-                    Text("Demo mode shows bundled sample data and never touches the network.")
+        #if os(macOS)
+            // A Mac settings window has no Save or Cancel: a change applies as it is
+            // made. Text applies when editing ends (Return, or leaving the field)
+            // rather than per keystroke, since applying rebuilds the connection,
+            // empties the caches and relocks writes.
+            form
+                .onSubmit(applyIfChanged)
+                .onChange(of: useDemo) { applyIfChanged() }
+                .onChange(of: focusedField) { oldField, _ in
+                    if oldField != nil { applyIfChanged() }
                 }
-
-                Section("ERPNext Server") {
-                    TextField("Server URL", text: $serverURL, prompt: Text("https://erp.example.com"))
-                        .autocorrectionDisabled()
-                        #if !os(macOS)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
-                        #endif
-                    TextField("API Key", text: $apiKey)
-                        .autocorrectionDisabled()
-                        #if !os(macOS)
-                            .textInputAutocapitalization(.never)
-                        #endif
-                    SecureField("API Secret", text: $apiSecret)
-                }
-                .disabled(useDemo)
-
-                if !useDemo {
-                    Section {
-                        Button {
-                            Task { await testConnection() }
-                        } label: {
-                            if isTesting {
-                                HStack {
-                                    ProgressView().controlSize(.small)
-                                    Text("Testing…")
-                                }
-                            } else {
-                                Text("Test Connection")
+                .onDisappear(perform: applyIfChanged)
+                .frame(minWidth: 480, minHeight: 420)
+                .onAppear(perform: load)
+        #else
+            NavigationStack {
+                form
+                    .navigationTitle("Settings")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { dismiss() }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Save") {
+                                save()
+                                dismiss()
                             }
                         }
-                        .disabled(isTesting || configuration == nil)
-
-                        switch testResult {
-                        case .success(let message):
-                            Label(message, systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        case .failure(let message):
-                            Label(message, systemImage: "xmark.octagon.fill")
-                                .foregroundStyle(.red)
-                        case nil:
-                            EmptyView()
-                        }
-                    } footer: {
-                        Text(
-                            "Tula is read-only by construction: it can only issue GET requests, and only to whitelisted read APIs. For defense in depth, use an API key from an ERPNext user with read/report permissions only (generate one under User → Settings → API Access)."
-                        )
                     }
-                }
             }
-            .formStyle(.grouped)
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        save()
-                        dismiss()
-                    }
-                }
-            }
-        }
-        #if os(macOS)
-            .frame(minWidth: 480, minHeight: 420)
+            .onAppear(perform: load)
         #endif
-        .onAppear {
-            useDemo = model.useDemo
-            serverURL = model.serverURLString
-            apiKey = model.apiKey
-            apiSecret = model.apiSecret
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                Toggle("Use demo data", isOn: $useDemo)
+            } footer: {
+                Text("Demo mode shows bundled sample data and never touches the network.")
+            }
+
+            Section("ERPNext Server") {
+                TextField("Server URL", text: $serverURL, prompt: Text("https://erp.example.com"))
+                    .focused($focusedField, equals: .serverURL)
+                    .autocorrectionDisabled()
+                    #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                    #endif
+                TextField("API Key", text: $apiKey)
+                    .focused($focusedField, equals: .apiKey)
+                    .autocorrectionDisabled()
+                    #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                    #endif
+                SecureField("API Secret", text: $apiSecret)
+                    .focused($focusedField, equals: .apiSecret)
+            }
+            .disabled(useDemo)
+
+            if !useDemo {
+                Section {
+                    Button {
+                        Task { await testConnection() }
+                    } label: {
+                        if isTesting {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Testing…")
+                            }
+                        } else {
+                            Text("Test Connection")
+                        }
+                    }
+                    .disabled(isTesting || configuration == nil)
+
+                    switch testResult {
+                    case .success(let message):
+                        Label(message, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    case .failure(let message):
+                        Label(message, systemImage: "xmark.octagon.fill")
+                            .foregroundStyle(.red)
+                    case nil:
+                        EmptyView()
+                    }
+                } footer: {
+                    Text(
+                        "Tula is read-only by construction: it can only issue GET requests, and only to whitelisted read APIs. For defense in depth, use an API key from an ERPNext user with read/report permissions only (generate one under User → Settings → API Access)."
+                    )
+                }
+            }
         }
+        .formStyle(.grouped)
+    }
+
+    private func load() {
+        useDemo = model.useDemo
+        serverURL = model.serverURLString
+        apiKey = model.apiKey
+        apiSecret = model.apiSecret
     }
 
     private var configuration: ServerConfiguration? {
@@ -131,5 +158,15 @@ struct SettingsView: View {
         model.apiKey = apiKey
         model.apiSecret = apiSecret
         model.applySettings()
+    }
+
+    /// Applies only what differs from the model, so loading the window's values,
+    /// or leaving a field untouched, doesn't reconnect.
+    private func applyIfChanged() {
+        guard
+            useDemo != model.useDemo || serverURL != model.serverURLString
+                || apiKey != model.apiKey || apiSecret != model.apiSecret
+        else { return }
+        save()
     }
 }

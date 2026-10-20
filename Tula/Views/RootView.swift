@@ -102,9 +102,11 @@ struct RootView: View {
                 model.omnibarRequested = false
             }
         }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-        }
+        #if !os(macOS)
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
+        #endif
         .sheet(isPresented: $showingOmnibar) {
             OmnibarView { route in
                 showingOmnibar = false
@@ -291,11 +293,19 @@ struct SidebarView: View {
     }
 
     private var settingsButton: some View {
-        Button {
-            showingSettings = true
-        } label: {
-            Label("Settings", systemImage: "gearshape")
-        }
-        .help("Server settings")
+        #if os(macOS)
+            // The Mac's one Settings window, the same as Tula > Settings… (⌘,).
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Server settings")
+        #else
+            Button {
+                showingSettings = true
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Server settings")
+        #endif
     }
 }
