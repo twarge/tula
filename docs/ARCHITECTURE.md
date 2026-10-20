@@ -1,10 +1,11 @@
-# Tula — a native, read-only ERPNext client
+# Tula — a native ERPNext client, read-only by default
 
 **Goal:** a macOS/iOS SwiftUI app that renders ERPNext's UI natively — starting with financial
 reports (P&L) — without building a bespoke view per ERPNext feature, and without WebKit.
 
-**Read-only guarantee:** the app cannot write to the server. This is enforced structurally
-(see §6), not by convention.
+**Read-only by default:** the transport Tula reads with cannot write to the server, and
+writing exists only behind a session lock, through an enumerated list of methods (§6). Both
+are enforced structurally, not by convention.
 
 ---
 
@@ -52,7 +53,8 @@ custom fields, and new reports on the server then appear in the native app with 
 | **Data** | Documents | `GET /api/resource/{DocType}` (list) and `GET /api/resource/{DocType}/{name}` (single) | List rows, form values, child tables |
 | **Reports** | Report doctype + report runner | `GET /api/method/frappe.desk.query_report.run?report_name=X&filters={…}` | Columns + rows + summary + chart config for any Query/Script report (P&L, Balance Sheet, GL, …) |
 
-All three are GET requests. That is the foundation of the read-only guarantee.
+All three are GET requests. That is the foundation of the read path's guarantee: reading
+can never write.
 
 ---
 
@@ -62,7 +64,7 @@ Frappe has ~40 field types. Each maps to a small renderer in a **field registry*
 (`FieldValueView`), keyed by `fieldtype`. Unknown types fall back to plain text — the app
 degrades gracefully instead of breaking on server customization.
 
-| Frappe fieldtype | Read-only SwiftUI rendering |
+| Frappe fieldtype | SwiftUI display rendering (editors: W3, §12) |
 |---|---|
 | `Data`, `Small Text`, `Phone`, `Autocomplete`, `Read Only` | `Text` |
 | `Int`, `Float` | `Text` with number `FormatStyle`, trailing-aligned |
@@ -70,7 +72,7 @@ degrades gracefully instead of breaking on server customization.
 | `Percent` | `Text` with percent format |
 | `Date`, `Datetime`, `Time` | `Text` with date `FormatStyle` (Frappe wire format: `yyyy-MM-dd[ HH:mm:ss]`) |
 | `Duration` | `Text` via `Duration.UnitsFormatStyle` |
-| `Check` | `Image(systemName: "checkmark")` / empty (never a `Toggle` — read-only) |
+| `Check` | `Image(systemName: "checkmark")` / empty (an image, not a `Toggle`, when displayed; the edit session's editor is the toggle) |
 | `Select` | `Text`; status-like fields get a tinted capsule badge |
 | `Link` | **`NavigationLink`** routing to `.document(doctype: options, name: value)` — this single rule makes the whole data graph navigable. Hovering (macOS) or long-pressing (iOS) any document link shows a quick-view popover (`DocumentQuickView`): title, status, `in_preview` fields, and the first child table's line items — the voucher's core costs without leaving the report |
 | `Dynamic Link` | Same, doctype resolved from the sibling field named in `options` (GL's voucher_no → voucher_type), so report voucher columns navigate too |
@@ -83,7 +85,7 @@ degrades gracefully instead of breaking on server customization.
 | `Rating` | Star row |
 | `Section Break`, `Column Break`, `Tab Break`, `Fold` | **Layout, not content** — consumed by the layout parser (§4) |
 | `Heading` | Section header `Text` |
-| `Button`, `Signature`, `Geolocation`, `Barcode`, unknown | Hidden or plain-text fallback (buttons are actions → never rendered in a read-only app) |
+| `Button`, `Signature`, `Geolocation`, `Barcode`, unknown | Hidden or plain-text fallback (buttons are actions, not data, and Tula runs none) |
 
 ## 4. Layout: Frappe's flat field list → a SwiftUI layout tree
 
@@ -135,15 +137,17 @@ Navigation is a single `Route` enum mirroring Desk's URL scheme. Because every `
 renders as a `NavigationLink(Route.document(…))`, deep navigation (report row → GL entry →
 voucher → party) works uniformly with no per-feature code.
 
-## 6. Read-only enforcement (three independent layers)
+## 6. Read-only enforcement (three independent layers) and the write gate
 
-1. **Type system (primary):** the only transport in `ERPNextKit` is `ReadOnlyClient`. It can
-   *only* issue `GET`. There is no code path that builds a `POST`/`PUT`/`DELETE`; RPC calls are
+1. **Type system (primary):** everything reads through `ReadOnlyClient`. It can *only* issue
+   `GET`: it has no code path that builds a `POST`/`PUT`/`DELETE`, and its RPC calls are
    restricted to a compiled-in whitelist (`ReadMethod` enum) of known-safe read endpoints
-   (`query_report.run`, `form.load.getdoctype`, …). Adding a write would require changing the
-   kit's public API — it cannot happen by accident in a view.
-2. **UI:** no edit affordances exist. Field renderers are display-only (`Check` is an image,
-   not a toggle; `Button` fields are never rendered).
+   (`query_report.run`, `form.load.getdoctype`, …). Adding a write to it would require changing
+   the kit's public API — it cannot happen by accident in a view. The one type that can send
+   anything else is `WriteClient`, which exists only while the lock is open (below).
+2. **UI:** while the lock is closed, no edit affordances exist. Field renderers are
+   display-only (`Check` is an image, not a toggle; `Button` fields are never rendered), and
+   editors appear only in an edit session, which needs the lock open.
 3. **Server (recommended, defense in depth):** connect with an API key for a dedicated
    ERPNext user holding only `read`/`report` permissions, so even a bug cannot write.
 
@@ -305,8 +309,8 @@ GET-able for later.
    header-click sorting can map to the same server-side sort later.
 5. **Persistence** — last-used conditions per DocType in UserDefaults (same pattern as
    child-table column prefs). Desk's server-side saved filters (the `List Filter` DocType)
-   are *readable* with normal perms, so they can be offered as read-only presets; creating
-   them stays out of scope (write).
+   are *readable* with normal perms, so they can be offered as presets; creating them is a
+   write, shipped in W5 behind the lock (§12).
 
 **Suggested order:** quick filters first (small, most of the daily value), then the generic
 editor + Link autocomplete, then saved-filter presets / `or_filters` / tree operators.
@@ -558,5 +562,5 @@ refresh document on success.
 
 ### Explicitly deferred
 
-Anything that writes (see §6 write-readiness notes); offline writes permanently; Desk print
-formats and custom client scripts; WebKit-dependent rendering.
+Offline writes, permanently (§6); Desk print formats and custom client scripts;
+WebKit-dependent rendering.

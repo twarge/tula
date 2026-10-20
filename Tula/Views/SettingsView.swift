@@ -112,7 +112,7 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text(
-                        "Tula is read-only by construction: it can only issue GET requests, and only to whitelisted read APIs. For defense in depth, use an API key from an ERPNext user with read/report permissions only (generate one under User → Settings → API Access)."
+                        "Tula reads with GET requests to a fixed list of ERPNext's read APIs. It writes only while the toolbar lock is open, which lasts until Tula quits or these settings change, and only through a fixed list of ERPNext methods. For defense in depth, use an API key from an ERPNext user with read and report permissions only, so the server refuses any write even with the lock open. Generate one under User → Settings → API Access."
                     )
                 }
             }
