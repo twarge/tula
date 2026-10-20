@@ -35,3 +35,8 @@ enter the server URL plus an API key/secret (ERPNext: *User → Settings → API
 Access*). Use a user that has only read/report permissions — the app never
 writes, but a read-only key is good defense in depth. Credentials are stored
 in the Keychain.
+
+## License
+
+Copyright 2026 Twarge LLC. Licensed under the Apache License, Version 2.0;
+see [LICENSE](LICENSE) or https://www.apache.org/licenses/LICENSE-2.0.
