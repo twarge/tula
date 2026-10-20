@@ -38,6 +38,12 @@ targets:
       path: Tula/Info.plist
       properties:
         CFBundleDisplayName: Tula
+        # Left out, XcodeGen writes a literal 1.0 and 1, which the App Store
+        # workflow's MARKETING_VERSION and CURRENT_PROJECT_VERSION overrides
+        # can't reach: every upload was 1.0 (1), and App Store Connect refused
+        # each one after the first.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.finance
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
