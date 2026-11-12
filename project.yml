@@ -43,9 +43,10 @@ targets:
         DEVELOPMENT_TEAM: 257KW9ZJFP
         SWIFT_STRICT_CONCURRENCY: minimal
         ENABLE_USER_SCRIPT_SANDBOXING: YES
-        # Tula/AppIcon.icon, written by Scripts/make-app-icon.swift. It is the
-        # macOS and iOS icon; visionOS takes nothing from an Icon Composer
-        # bundle and has no icon.
+        # Two things share the name, both written by
+        # Scripts/make-app-icon.swift: Tula/AppIcon.icon is the macOS and iOS
+        # icon, and AppIcon.solidimagestack in the asset catalog is the
+        # visionOS one, which takes nothing from an Icon Composer bundle.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Native Apple Vision app, not iPad-compatibility mode.
         TARGETED_DEVICE_FAMILY[sdk=xros*]: "7"

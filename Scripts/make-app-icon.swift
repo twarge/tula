@@ -1,23 +1,28 @@
 // Copyright (C) 2026 Twarge LLC
 // SPDX-License-Identifier: Apache-2.0
 //
-// Writes the app icon as an Icon Composer bundle.
+// Writes the app icon, in the two forms the platforms take it.
 //
 //     swift Scripts/make-app-icon.swift
 //
-// The output is Tula/AppIcon.icon: icon.json plus one SVG per layer. Xcode's
-// asset compiler turns it into every size macOS and iOS need and applies the
-// system shape and the glass, dark, clear and tinted treatments, so the
-// artwork here is full bleed and carries no mask, rim, shadow or gloss of its
-// own.
+// Tula/AppIcon.icon is an Icon Composer bundle, for macOS and iOS: icon.json
+// plus one SVG per layer. Xcode's asset compiler turns it into every size
+// those platforms need and applies the system shape and the glass, dark,
+// clear and tinted treatments, so the artwork is full bleed and carries no
+// mask, rim, shadow or gloss of its own.
+//
+// Tula/Assets.xcassets/AppIcon.solidimagestack is the same drawing for
+// visionOS, which takes nothing from an Icon Composer bundle: three 1024 px
+// PNGs that the system crops to a circle and floats one above the other.
+// Both go by the name AppIcon, and each platform's build picks out its own.
 //
 // The picture is an idealized balance scale, perfectly level, weighing a
-// sphere against a pyramid. From back to front: the navy ground (the fill in
-// icon.json), the pedestal (Base), the pole, beam, strings and pans
-// (Balance), and the two weights (Sphere and Pyramid, one glass group).
+// sphere against a pyramid. From back to front: the navy ground, the pedestal
+// (Base), the pole, beam, strings and pans (Balance), and the two weights
+// (Sphere and Pyramid).
 //
-// The bundle is committed, so this only needs running when the design
-// changes. To look at the result without building:
+// Both outputs are committed, so this only needs running when the design
+// changes. To look at the Icon Composer bundle without building:
 //
 //     "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool" \
 //         "$PWD/Tula/AppIcon.icon" --export-image --output-file icon.png \
@@ -26,7 +31,10 @@
 // The renditions are Default, Dark, TintedLight, TintedDark, ClearLight and
 // ClearDark; the platforms macOS and iOS.
 
+import AppKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 // MARK: Colours
 
@@ -64,9 +72,12 @@ let shade = (x: armX[0], y: 687.0, radiusX: 140.0, radiusY: 95.0)
 let pyramid = (x: armX[1], apexY: 428.0, baseY: 648.0, halfBase: 130.0)
 
 // The numbers above lay the scale out from pan tip (x = 48) to pan tip, as the
-// flat icon had it. Every layer is drawn at this fraction of that size, about
-// the drawing's centre, so the pans stand clear of the system's glass rim.
-let fit = 0.9
+// flat icon had it. Every layer is drawn at a fraction of that size, about the
+// drawing's centre: in the square icon so the pans stand clear of the system's
+// glass rim, and smaller still in the round one, where the circle visionOS
+// crops to would otherwise cut close to the ends of the beam.
+let squareFit = 0.9
+let roundFit = 0.76
 let drawing = (x: center, y: 547.0)  // centre of the drawing's bounds
 
 // MARK: SVG
@@ -78,15 +89,20 @@ func n(_ value: Double) -> String {
 }
 
 func svg(_ body: [String]) -> String {
-    let lines = body.map { "    \($0)\n" }.joined()
-    let shift = (x: 512 - fit * drawing.x, y: 512 - fit * drawing.y)
+    let lines = body.map { "  \($0)\n" }.joined()
     return """
         <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-          <g transform="translate(\(n(shift.x)) \(n(shift.y))) scale(\(n(fit)))">
-        \(lines)  </g>
-        </svg>
+        \(lines)</svg>
 
         """
+}
+
+/// A drawing at `fit` times the size the geometry gives it, with its centre
+/// at the centre of the canvas.
+func placed(_ body: [String], fit: Double) -> [String] {
+    let shift = (x: 512 - fit * drawing.x, y: 512 - fit * drawing.y)
+    return [#"<g transform="translate(\#(n(shift.x)) \#(n(shift.y))) scale(\#(n(fit)))">"#]
+        + body.map { "  \($0)" } + ["</g>"]
 }
 
 func base() -> [String] {
@@ -154,7 +170,17 @@ func pyramidLayer(_ tones: Tones) -> [String] {
     ]
 }
 
-// MARK: icon.json
+let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+
+/// Pretty-printed with sorted keys is the form Xcode and Icon Composer save.
+func write(json object: Any, to file: URL) throws {
+    var data = try JSONSerialization.data(
+        withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    data.append(0x0A)
+    try data.write(to: file)
+}
+
+// MARK: The Icon Composer bundle, for macOS and iOS
 
 func gradient(_ colors: [Int]) -> [String: Any] {
     let stops = colors.map { hex -> String in
@@ -181,14 +207,14 @@ let groups: [[Layer]] = [
     [("Base", base(), nil)],
 ]
 
-let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 let bundle = root.appendingPathComponent("Tula/AppIcon.icon")
 let assets = bundle.appendingPathComponent("Assets")
 try? FileManager.default.removeItem(at: assets)
 try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
 
 func write(_ body: [String], as name: String) throws -> String {
-    try svg(body).write(to: assets.appendingPathComponent(name), atomically: true, encoding: .utf8)
+    try svg(placed(body, fit: squareFit))
+        .write(to: assets.appendingPathComponent(name), atomically: true, encoding: .utf8)
     return name
 }
 
@@ -219,9 +245,77 @@ document["groups"] = try groups.map { layers -> [String: Any] in
         "translucency": ["enabled": false, "value": 0.5],
     ]
 }
-// Pretty-printed with sorted keys is the form Icon Composer itself saves.
-var json = try JSONSerialization.data(
-    withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
-json.append(0x0A)
-try json.write(to: bundle.appendingPathComponent("icon.json"))
+try write(json: document, to: bundle.appendingPathComponent("icon.json"))
 print("wrote Tula/AppIcon.icon")
+
+// MARK: The solid image stack, for visionOS
+
+func groundLayer() -> [String] {
+    let stops = ground.map { String(format: "#%06X", $0) }
+    return [
+        "<defs>",
+        #"  <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">"#,
+        #"    <stop offset="0" stop-color="\#(stops[0])"/>"#,
+        #"    <stop offset="1" stop-color="\#(stops[1])"/>"#,
+        "  </linearGradient>",
+        "</defs>",
+        #"<rect width="1024" height="1024" fill="url(#ground)"/>"#,
+    ]
+}
+
+/// Layers from front to back, the order the stack lists them. The asset
+/// compiler takes PNGs here, not SVGs, and the back layer has to be opaque.
+let stackLayers: [(name: String, drawing: [String], opaque: Bool)] = [
+    ("Front", placed(sphereLayer(blue) + pyramidLayer(coral), fit: roundFit), false),
+    ("Middle", placed(base() + balance(), fit: roundFit), false),
+    ("Back", groundLayer(), true),
+]
+
+/// Draws an SVG at 1024 x 1024 pixels and encodes it as an sRGB PNG.
+func png(_ source: String, opaque: Bool) -> Data? {
+    let alpha: CGImageAlphaInfo = opaque ? .noneSkipLast : .premultipliedLast
+    guard let image = NSImage(data: Data(source.utf8)),
+        let space = CGColorSpace(name: CGColorSpace.sRGB),
+        let context = CGContext(
+            data: nil, width: 1024, height: 1024, bitsPerComponent: 8, bytesPerRow: 0,
+            space: space, bitmapInfo: alpha.rawValue)
+    else { return nil }
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+    image.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
+    NSGraphicsContext.current = nil
+
+    let data = NSMutableData()
+    guard let drawn = context.makeImage(),
+        let destination = CGImageDestinationCreateWithData(
+            data, UTType.png.identifier as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(destination, drawn, nil)
+    return CGImageDestinationFinalize(destination) ? data as Data : nil
+}
+
+let catalog = root.appendingPathComponent("Tula/Assets.xcassets")
+let stack = catalog.appendingPathComponent("AppIcon.solidimagestack")
+let info: [String: Any] = ["author": "xcode", "version": 1]
+try? FileManager.default.removeItem(at: stack)
+for layer in stackLayers {
+    let folder = stack.appendingPathComponent(layer.name + ".solidimagestacklayer")
+    let imageSet = folder.appendingPathComponent("Content.imageset")
+    let file = layer.name + ".png"
+    try FileManager.default.createDirectory(at: imageSet, withIntermediateDirectories: true)
+    guard let image = png(svg(layer.drawing), opaque: layer.opaque) else {
+        fatalError("could not draw the \(layer.name) layer")
+    }
+    try image.write(to: imageSet.appendingPathComponent(file))
+    try write(
+        json: ["images": [["filename": file, "idiom": "vision", "scale": "2x"]], "info": info],
+        to: imageSet.appendingPathComponent("Contents.json"))
+    try write(json: ["info": info], to: folder.appendingPathComponent("Contents.json"))
+}
+try write(
+    json: [
+        "info": info,
+        "layers": stackLayers.map { ["filename": $0.name + ".solidimagestacklayer"] },
+    ],
+    to: stack.appendingPathComponent("Contents.json"))
+try write(json: ["info": info], to: catalog.appendingPathComponent("Contents.json"))
+print("wrote Tula/Assets.xcassets/AppIcon.solidimagestack")
