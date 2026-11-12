@@ -243,6 +243,8 @@ ERPNextKit/
 The app talks to a `DataSource` protocol with two implementations: `LiveDataSource`
 (ReadOnlyClient) and `DemoDataSource`. Credentials (API key/secret) are entered by the user in
 Settings and stored in the Keychain; nothing is ever sent anywhere but the configured server.
+The one exception is the server URL itself, which `SettingsSync` mirrors to the user's other
+devices through iCloud's key-value store (never the credentials, and never a URL carrying any).
 
 ## 9. Data freshness
 

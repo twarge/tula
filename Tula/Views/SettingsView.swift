@@ -118,6 +118,11 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // A server URL arriving from iCloud while this is open replaces the
+        // field's copy; otherwise closing or saving would put the old one back.
+        .onChange(of: model.serverURLString) { _, newValue in
+            serverURL = newValue
+        }
     }
 
     private func load() {

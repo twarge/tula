@@ -42,6 +42,11 @@ Settings → API Access*). For defense in depth, use a user that has only
 read/report permissions: the server then refuses any write, even with the
 lock open. Credentials are stored in the Keychain.
 
+The server URL, and nothing else, syncs between your devices through iCloud's
+key-value store, so a second device needs only the API key and secret (and
+demo mode turned off). A URL arriving from another device is applied like an
+edit in Settings: the connection is rebuilt and the write lock relocks.
+
 ## License
 
 Copyright 2026 Twarge LLC. Licensed under the Apache License, Version 2.0;

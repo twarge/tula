@@ -91,6 +91,8 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        # iCloud key-value store, for SettingsSync (the server URL only).
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)$(CFBundleIdentifier)
 
 schemes:
   Tula:

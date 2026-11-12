@@ -170,6 +170,15 @@ final class AppModel {
         filterOptionsLoadedForGeneration = -1
     }
 
+    /// A server URL that arrived from another device through iCloud
+    /// (`SettingsSync`). It takes the same route as an edit in Settings, so
+    /// the connection is rebuilt, the caches are emptied and writes relock.
+    func applySyncedServerURL(_ value: String) {
+        guard value != serverURLString else { return }
+        serverURLString = value
+        applySettings()
+    }
+
     private func makeDataSource() -> any DataSource {
         if !useDemo, let configuration = liveConfiguration() {
             return LiveDataSource(client: ReadOnlyClient(configuration: configuration))

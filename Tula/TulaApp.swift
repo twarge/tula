@@ -3,7 +3,17 @@ import SwiftUI
 
 @main
 struct TulaApp: App {
-    @State private var model = AppModel()
+    @State private var model: AppModel
+
+    init() {
+        let model = AppModel()
+        _model = State(initialValue: model)
+        // The server URL (and only that) follows the user between devices.
+        SettingsSync.shared.start { [weak model] key, value in
+            guard key == SettingsSync.serverURLKey else { return }
+            model?.applySyncedServerURL(value)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
