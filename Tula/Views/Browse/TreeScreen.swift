@@ -65,7 +65,7 @@ struct TreeScreen: View {
 
     var body: some View {
         content
-            .inspector(isPresented: filtersPresented) {
+            .filterInspector(isPresented: filtersPresented) {
                 TreeFiltersInspector(
                     fields: filterFields,
                     company: Binding(get: { effectiveCompany }, set: { company = $0 }),

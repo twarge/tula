@@ -56,7 +56,7 @@ struct GenericReportScreen: View {
 
     var body: some View {
         content
-            .inspector(isPresented: filtersPresented) {
+            .filterInspector(isPresented: filtersPresented) {
                 GenericReportFiltersInspector(
                     definitions: visibleDefinitions, values: $values,
                     report: reportName, result: loadedResult, sort: $sort)

@@ -61,7 +61,7 @@ struct ReportScreen: View {
 
     var body: some View {
         content
-            .inspector(isPresented: $showingFilters) {
+            .filterInspector(isPresented: $showingFilters) {
                 ReportFiltersInspector(
                     descriptor: descriptor, glState: $glState, result: loadedResult,
                     sort: $sort)
@@ -559,11 +559,38 @@ extension View {
     /// room, and as a phone sheet a half-height rest with the report still
     /// live behind it, so each change shows as it's made.
     func reportFilterInspectorPresentation() -> some View {
-        inspectorColumnWidth(min: 280, ideal: 320, max: 420)
-            #if !os(macOS)
-                .presentationDetents([.medium, .large])
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-            #endif
+        #if os(visionOS)
+            self
+        #else
+            inspectorColumnWidth(min: 280, ideal: 320, max: 420)
+                #if !os(macOS)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                #endif
+        #endif
+    }
+
+    /// `inspector` where it exists. visionOS has none, so the filters come
+    /// up as a sheet there, with a Done button since nothing else closes it.
+    @ViewBuilder
+    func filterInspector<V: View>(
+        isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> V
+    ) -> some View {
+        #if os(visionOS)
+            sheet(isPresented: isPresented) {
+                NavigationStack {
+                    content()
+                        .navigationTitle("Filters")
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { isPresented.wrappedValue = false }
+                            }
+                        }
+                }
+            }
+        #else
+            inspector(isPresented: isPresented, content: content)
+        #endif
     }
 }
 
@@ -582,6 +609,9 @@ struct ScopeSubtitle: ViewModifier {
             } else {
                 content
             }
+        #elseif os(visionOS)
+            // No navigationSubtitle on visionOS.
+            content
         #else
             content.navigationSubtitle(text)
         #endif
