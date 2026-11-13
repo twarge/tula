@@ -23,6 +23,11 @@ final class EditSession {
     /// Uploads a file for an Attach field, returning its `file_url`
     /// (nil when the gate is locked, e.g. the preview hook).
     var uploadFile: ((String, Data) async throws -> String)?
+    /// Called with the fieldname when a Link field's entry settles — a
+    /// suggestion picked, Return, or focus leaving the field. For what Desk
+    /// does on a link's change rather than on every keystroke (a picked
+    /// item's details).
+    var linkSettled: ((String) -> Void)?
 
     private var cachedEvaluator: DependsOnEvaluator?
 
@@ -66,13 +71,18 @@ final class EditSession {
         guard !field.readOnly, field.permlevel == 0, !field.setOnlyOnce else { return false }
         guard docstatus < 2 else { return false }
         if docstatus == 1 && !field.allowOnSubmit { return false }
-        if evaluator.isTruthy(field.readOnlyDependsOn) { return false }
+        // Only a field with a rule needs the evaluator. Grid cells ask this
+        // of every column on every keystroke, and each draft change costs
+        // the evaluator a new JavaScript context.
+        if let rule = field.readOnlyDependsOn, evaluator.isTruthy(rule) { return false }
         return true
     }
 
     /// Mandatory marker: static `reqd` or a triggered mandatory_depends_on.
     func isMandatory(_ field: DocField) -> Bool {
-        field.reqd || evaluator.isTruthy(field.mandatoryDependsOn)
+        if field.reqd { return true }
+        guard let rule = field.mandatoryDependsOn else { return false }
+        return evaluator.isTruthy(rule)
     }
 
     static func hasEditor(_ fieldtype: FieldType) -> Bool {
@@ -85,6 +95,64 @@ final class EditSession {
         default:
             return false
         }
+    }
+
+    // MARK: Child tables
+
+    /// The draft's rows for a child table, in order.
+    func rows(of tableFieldname: String) -> [[String: FrappeValue]] {
+        (draft[tableFieldname]?.arrayValue ?? []).map { $0.objectValue ?? [:] }
+    }
+
+    func setRow(_ row: [String: FrappeValue], at index: Int, in tableFieldname: String) {
+        var tableRows = draft[tableFieldname]?.arrayValue ?? []
+        if tableRows.indices.contains(index) {
+            tableRows[index] = .object(row)
+        } else {
+            tableRows.append(.object(row))
+        }
+        draft[tableFieldname] = .array(tableRows)
+    }
+
+    /// Appends a blank row and returns its index. The row carries only its
+    /// DocType: everything else stays unset, for the server's own defaults
+    /// to fill on save (and a picked item's details sooner, `ItemDetails`).
+    @discardableResult
+    func appendRow(to tableFieldname: String, doctype: String) -> Int {
+        var tableRows = draft[tableFieldname]?.arrayValue ?? []
+        tableRows.append(.object(["doctype": .string(doctype)]))
+        draft[tableFieldname] = .array(tableRows)
+        return tableRows.count - 1
+    }
+
+    func removeRow(at index: Int, from tableFieldname: String) {
+        var tableRows = draft[tableFieldname]?.arrayValue ?? []
+        guard tableRows.indices.contains(index) else { return }
+        tableRows.remove(at: index)
+        draft[tableFieldname] = .array(tableRows)
+    }
+
+    /// Whether rows may be added to or removed from a table — Desk's rule
+    /// for an editable grid: the table itself is writable, and on a
+    /// submitted document it must be `allow_on_submit`. (Cells of existing
+    /// rows follow their own fields' rules through `rowSession`.)
+    func allowsRowChanges(in table: DocField) -> Bool {
+        guard !table.readOnly, table.permlevel == 0, docstatus < 2 else { return false }
+        if docstatus == 1 && !table.allowOnSubmit { return false }
+        if let rule = table.readOnlyDependsOn, evaluator.isTruthy(rule) { return false }
+        return true
+    }
+
+    /// A session over one row of this document, for the row's own
+    /// editability rules and depends_on evaluation. A row the server has
+    /// already saved shares the document's docstatus; one added in this
+    /// edit is a draft whatever its parent is, as in Desk.
+    func rowSession(for row: [String: FrappeValue]) -> EditSession {
+        let isSaved = row["name"]?.nonEmptyString != nil
+        let session = EditSession(
+            document: Document(raw: row), docstatus: isSaved ? docstatus : 0)
+        session.uploadFile = uploadFile
+        return session
     }
 
     /// Whether any field of the DocType could be edited at this docstatus —
@@ -101,4 +169,7 @@ final class EditSession {
 extension EnvironmentValues {
     /// Non-nil while the enclosing document screen is in an edit session.
     @Entry var editSession: EditSession?
+    /// The form's scroll view, for content that grows while it is being
+    /// edited (a grid cell's suggestions) and has to bring itself into view.
+    @Entry var formScroll: ScrollViewProxy?
 }

@@ -62,7 +62,7 @@ struct DocumentScreen: View {
                         EditingBar(
                             session: session,
                             title: amendment == nil ? "Editing" : "Amending \(name) · Not Saved",
-                            onSave: { save(session) },
+                            onSave: { save(session, loaded) },
                             onDiscard: {
                                 editSession = nil
                                 amendment = nil
@@ -72,33 +72,36 @@ struct DocumentScreen: View {
                                 refreshToken += 1
                             })
                     }
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            // An amendment is a new document: no dashboard,
-                            // comments, or activity of its own yet.
-                            DocumentFormView(
-                                meta: loaded.meta, childMetas: loaded.childMetas,
-                                document: amendment ?? loaded.document,
-                                gridColumns: loaded.gridColumns,
-                                dashboard: amendment != nil
-                                    || loaded.periphery.connections.isEmpty
-                                        && loaded.periphery.stats.isEmpty
-                                        && loaded.periphery.reportLinks.isEmpty
-                                    ? nil
-                                    : DashboardTabView(
-                                        periphery: loaded.periphery, documentName: name))
-                            if amendment == nil {
-                                PeripheryTrailingSections(
-                                    periphery: loaded.periphery, documentName: name,
-                                    doctype: doctype,
-                                    onMutate: { refreshToken += 1 })
+                    ScrollViewReader { scroll in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                // An amendment is a new document: no dashboard,
+                                // comments, or activity of its own yet.
+                                DocumentFormView(
+                                    meta: loaded.meta, childMetas: loaded.childMetas,
+                                    document: amendment ?? loaded.document,
+                                    gridColumns: loaded.gridColumns,
+                                    dashboard: amendment != nil
+                                        || loaded.periphery.connections.isEmpty
+                                            && loaded.periphery.stats.isEmpty
+                                            && loaded.periphery.reportLinks.isEmpty
+                                        ? nil
+                                        : DashboardTabView(
+                                            periphery: loaded.periphery, documentName: name))
+                                if amendment == nil {
+                                    PeripheryTrailingSections(
+                                        periphery: loaded.periphery, documentName: name,
+                                        doctype: doctype,
+                                        onMutate: { refreshToken += 1 })
+                                }
                             }
+                            .padding()
+                            .frame(maxWidth: 900, alignment: .leading)
+                            .frame(maxWidth: .infinity)
                         }
-                        .padding()
-                        .frame(maxWidth: 900, alignment: .leading)
-                        .frame(maxWidth: .infinity)
+                        .refreshable { await load() }
+                        .environment(\.formScroll, scroll)
                     }
-                    .refreshable { await load() }
                 }
                 .environment(\.editSession, editSession)
             }
@@ -159,17 +162,22 @@ struct DocumentScreen: View {
         editSession = EditSession(document: copy, docstatus: 0)
     }
 
-    private func save(_ session: EditSession) {
+    private func save(_ session: EditSession, _ loaded: Loaded) {
         guard let writeSession = model.writeSession else {
             session.error = "Writes are locked — open the lock in the toolbar first."
             return
         }
+        // Desk drops blank table lines before every save, in the form as
+        // well as in what it sends.
+        let cleaned = loaded.meta.removingEmptyRows(
+            from: session.draft, childMetas: loaded.childMetas)
+        if cleaned != session.draft { session.draft = cleaned }
         session.isSaving = true
         session.error = nil
         Task {
             defer { session.isSaving = false }
             do {
-                var draft = session.draft
+                var draft = cleaned
                 draft["doctype"] = .string(doctype)
                 if amendment != nil {
                     let created = try await writeSession.insert(documentRaw: draft)
@@ -360,8 +368,8 @@ struct DocumentFormView<DashboardContent: View>: View {
                 if let tab {
                     ForEach(cards(for: tab, evaluator: evaluator)) { card in
                         FormCardView(
-                            card: card, childMetas: childMetas, document: document,
-                            gridColumns: gridColumns)
+                            card: card, doctype: meta.name, childMetas: childMetas,
+                            document: document, gridColumns: gridColumns)
                     }
                 }
             }
@@ -481,6 +489,7 @@ private struct FormCard: Identifiable {
 
 private struct FormCardView: View {
     let card: FormCard
+    let doctype: String
     let childMetas: [String: DocTypeMeta]
     let document: Document
     let gridColumns: [String: [GridColumn]]
@@ -490,8 +499,9 @@ private struct FormCardView: View {
             VStack(alignment: .leading, spacing: 20) {
                 ForEach(card.sections) { section in
                     FormSectionContent(
-                        section: section, cardLabel: card.label, childMetas: childMetas,
-                        document: document, gridColumns: gridColumns)
+                        section: section, cardLabel: card.label, doctype: doctype,
+                        childMetas: childMetas, document: document,
+                        gridColumns: gridColumns)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -509,6 +519,8 @@ private struct FormCardView: View {
 private struct FormSectionContent: View {
     let section: PreparedSection
     let cardLabel: String?
+    /// The DocType this form renders — the parent of its tables' rows.
+    let doctype: String
     let childMetas: [String: DocTypeMeta]
     let document: Document
     let gridColumns: [String: [GridColumn]]
@@ -578,7 +590,9 @@ private struct FormSectionContent: View {
                 meta: childMeta, rows: rows,
                 parentValues: editSession?.draft ?? document.raw,
                 serverColumns: gridColumns[childDoctype],
-                editFieldname: editSession == nil ? nil : tableField.fieldname)
+                editFieldname: editSession == nil ? nil : tableField.fieldname,
+                allowsRowChanges: editSession?.allowsRowChanges(in: tableField) ?? false,
+                parentDoctype: doctype)
         }
     }
 }
@@ -700,337 +714,6 @@ private struct FieldRow: View {
         } else {
             Text(verbatim: " ")
         }
-    }
-}
-
-/// Read-only child table (invoice items etc.). Mirrors Desk's grid: a row
-/// number column, user-choosable columns (gear menu, persisted per child
-/// DocType; widths are content-sized, the native equivalent of Desk's width
-/// settings), and a per-row details button that opens the full row in a
-/// sheet — the native take on Desk's pencil.
-private struct ChildTableView: View {
-    let title: String?
-    let meta: DocTypeMeta
-    let rows: [Document]
-    let parentValues: [String: FrappeValue]
-    /// Desk's per-user grid configuration for this child DocType, if any.
-    let serverColumns: [GridColumn]?
-    /// The parent document's fieldname for this table; non-nil while the
-    /// enclosing screen is editing, which turns on row editing/add/delete.
-    let editFieldname: String?
-
-    @Environment(AppModel.self) private var model
-    @Environment(\.editSession) private var editSession
-    @State private var visibleFieldnames: [String]
-    @State private var detailRow: Document?
-    @State private var editingRow: EditingRowSelection?
-
-    struct EditingRowSelection: Identifiable {
-        let index: Int
-        var id: Int { index }
-    }
-
-    init(
-        title: String?, meta: DocTypeMeta, rows: [Document],
-        parentValues: [String: FrappeValue], serverColumns: [GridColumn]? = nil,
-        editFieldname: String? = nil
-    ) {
-        self.title = title
-        self.meta = meta
-        self.rows = rows
-        self.parentValues = parentValues
-        self.serverColumns = serverColumns
-        self.editFieldname = editFieldname
-        // Precedence: this device's explicit choice → Desk grid settings →
-        // the DocType's in_list_view defaults.
-        let stored = UserDefaults.standard.stringArray(forKey: Self.storageKey(meta.name))
-        _visibleFieldnames = State(
-            initialValue: stored ?? serverColumns?.map(\.fieldname)
-                ?? meta.listFields.map(\.fieldname))
-    }
-
-    private static func storageKey(_ doctype: String) -> String {
-        "childTableColumns.\(doctype)"
-    }
-
-    private var availableFields: [DocField] {
-        meta.fields.filter { $0.fieldtype.isPresentable && !$0.hidden }
-    }
-
-    /// Visible columns in metadata order; falls back to the DocType's list
-    /// fields if the user deselects everything.
-    private var visibleFields: [DocField] {
-        let chosen = availableFields.filter { visibleFieldnames.contains($0.fieldname) }
-        return chosen.isEmpty ? meta.listFields : chosen
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                if let title {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                }
-                Spacer()
-                if let editFieldname, let session = editSession {
-                    Button {
-                        var tableRows = session.draft[editFieldname]?.arrayValue ?? []
-                        tableRows.append(.object(["doctype": .string(meta.name)]))
-                        session.set(editFieldname, .array(tableRows))
-                        editingRow = EditingRowSelection(index: tableRows.count - 1)
-                    } label: {
-                        Label("Add Row", systemImage: "plus")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                columnsMenu
-            }
-            grid
-        }
-        .sheet(item: $detailRow) { row in
-            ChildRowDetailSheet(meta: meta, row: row)
-        }
-        .sheet(item: $editingRow) { selection in
-            if let editFieldname, let session = editSession {
-                ChildRowEditor(
-                    meta: meta, parentSession: session,
-                    tableFieldname: editFieldname, index: selection.index)
-            }
-        }
-    }
-
-    private var columnsMenu: some View {
-        Menu {
-            ForEach(availableFields) { field in
-                Toggle(isOn: columnBinding(for: field)) {
-                    Text(field.label)
-                }
-            }
-            Divider()
-            Button("Reset Columns") {
-                visibleFieldnames =
-                    serverColumns?.map(\.fieldname) ?? meta.listFields.map(\.fieldname)
-                UserDefaults.standard.removeObject(forKey: Self.storageKey(meta.name))
-            }
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Choose columns")
-    }
-
-    private func columnBinding(for field: DocField) -> Binding<Bool> {
-        Binding {
-            visibleFieldnames.contains(field.fieldname)
-        } set: { isOn in
-            if isOn {
-                visibleFieldnames.append(field.fieldname)
-            } else {
-                visibleFieldnames.removeAll { $0 == field.fieldname }
-            }
-            persistColumns()
-        }
-    }
-
-    private func persistColumns() {
-        UserDefaults.standard.set(visibleFieldnames, forKey: Self.storageKey(meta.name))
-    }
-
-    private var grid: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                GridRow {
-                    Text("#")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(visibleFields) { field in
-                        Text(field.label)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .gridColumnAlignment(field.fieldtype.isNumeric ? .trailing : .leading)
-                    }
-                    Text("")
-                }
-                Divider()
-                // Index identity: new rows have no server name yet, so the
-                // document id would collide.
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    GridRow {
-                        Text("\(index + 1)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(visibleFields) { field in
-                            FieldValueView(
-                                fieldname: field.fieldname,
-                                fieldtype: field.fieldtype,
-                                options: field.options,
-                                value: row[field.fieldname],
-                                currencyCode: ValueFormatting.currencyCode(
-                                    options: field.fieldtype == .currency ? field.options : nil,
-                                    rowValues: row.raw,
-                                    parentValues: parentValues,
-                                    fallback: model.fallbackCurrencyCode),
-                                linkEnabled: false)
-                                .lineLimit(1)
-                        }
-                        Button {
-                            if editFieldname != nil {
-                                editingRow = EditingRowSelection(index: index)
-                            } else {
-                                detailRow = row
-                            }
-                        } label: {
-                            Image(systemName: editFieldname == nil ? "info.circle" : "pencil")
-                        }
-                        .buttonStyle(.borderless)
-                        .help(editFieldname == nil ? "Row details" : "Edit row")
-                    }
-                }
-            }
-            .padding(10)
-        }
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-/// The full child row rendered through the generic form renderer — every
-/// field, laid out by the child DocType's own section/column breaks.
-private struct ChildRowDetailSheet: View {
-    let meta: DocTypeMeta
-    let row: Document
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                DocumentFormView(meta: meta, childMetas: [:], document: row)
-                    .padding()
-            }
-            .navigationTitle(rowTitle)
-            .navigationDestination(for: Route.self) { route in
-                RouteView(route: route)
-            }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        #if os(macOS)
-            .frame(minWidth: 560, minHeight: 480)
-        #endif
-    }
-
-    private var rowTitle: String {
-        if let titleField = meta.titleField, let title = row[titleField]?.nonEmptyString {
-            return title
-        }
-        // Child rows have opaque autonames; prefer the first identifying value.
-        let candidate = meta.listFields.first {
-            ($0.fieldtype == .link || $0.fieldtype == .data)
-                && row[$0.fieldname]?.nonEmptyString != nil
-        }
-        if let candidate, let value = row[candidate.fieldname]?.nonEmptyString {
-            return value
-        }
-        return "Row Details"
-    }
-}
-
-/// Editable child row (W3): the row is copied into a local edit session
-/// rendered through the same generic form; Done writes it back into the
-/// parent draft (with the one convention-safe computation, amount =
-/// qty × rate), Cancel discards, Delete removes the row.
-private struct ChildRowEditor: View {
-    let meta: DocTypeMeta
-    let parentSession: EditSession
-    let tableFieldname: String
-    let index: Int
-
-    @State private var localSession: EditSession
-    @State private var initialRow: Document
-    @Environment(\.dismiss) private var dismiss
-
-    init(meta: DocTypeMeta, parentSession: EditSession, tableFieldname: String, index: Int) {
-        self.meta = meta
-        self.parentSession = parentSession
-        self.tableFieldname = tableFieldname
-        self.index = index
-        let raw =
-            parentSession.draft[tableFieldname]?.arrayValue?[safe: index]?.objectValue ?? [:]
-        let row = Document(raw: raw)
-        _initialRow = State(initialValue: row)
-        let session = EditSession(document: row, docstatus: parentSession.docstatus)
-        session.uploadFile = parentSession.uploadFile
-        _localSession = State(initialValue: session)
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                DocumentFormView(meta: meta, childMetas: [:], document: initialRow)
-                    .environment(\.editSession, localSession)
-                    .padding()
-            }
-            .navigationTitle("Edit Row \(index + 1)")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .destructiveAction) {
-                    Button(role: .destructive) {
-                        var tableRows = parentSession.draft[tableFieldname]?.arrayValue ?? []
-                        if tableRows.indices.contains(index) {
-                            tableRows.remove(at: index)
-                            parentSession.set(tableFieldname, .array(tableRows))
-                        }
-                        dismiss()
-                    } label: {
-                        Label("Delete Row", systemImage: "trash")
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        apply()
-                        dismiss()
-                    }
-                }
-            }
-        }
-        #if os(macOS)
-            .frame(minWidth: 560, minHeight: 480)
-        #endif
-    }
-
-    private func apply() {
-        var raw = localSession.draft
-        // The only client-side math (ARCHITECTURE §12): the row amount
-        // convention. Taxes, pricing, and totals come back from the server
-        // on save.
-        if meta.field(named: "qty") != nil, meta.field(named: "rate") != nil,
-            meta.field(named: "amount") != nil,
-            let qty = raw["qty"]?.doubleValue, let rate = raw["rate"]?.doubleValue {
-            raw["amount"] = .double(qty * rate)
-        }
-        var tableRows = parentSession.draft[tableFieldname]?.arrayValue ?? []
-        if tableRows.indices.contains(index) {
-            tableRows[index] = .object(raw)
-        } else {
-            tableRows.append(.object(raw))
-        }
-        parentSession.set(tableFieldname, .array(tableRows))
-    }
-}
-
-extension Array {
-    fileprivate subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
 

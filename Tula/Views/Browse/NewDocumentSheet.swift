@@ -81,38 +81,41 @@ struct NewDocumentSheet: View {
     }
 
     private func form(_ loaded: Loaded, session: EditSession) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let error = errorMessage {
-                    Text(error)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                }
-                if loaded.meta.autoname == "prompt" {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 2) {
-                            Text("ID")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("*")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-                        TextField("New \(doctype) ID", text: $newName)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 320)
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.callout)
+                            .foregroundStyle(.red)
                     }
+                    if loaded.meta.autoname == "prompt" {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 2) {
+                                Text("ID")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("*")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                            TextField("New \(doctype) ID", text: $newName)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 320)
+                        }
+                    }
+                    DocumentFormView(
+                        meta: quickEntry ? Self.quickEntryMeta(loaded.meta) : loaded.meta,
+                        childMetas: loaded.childMetas,
+                        document: Document(raw: session.draft),
+                        gridColumns: loaded.gridColumns)
+                        .environment(\.editSession, session)
                 }
-                DocumentFormView(
-                    meta: quickEntry ? Self.quickEntryMeta(loaded.meta) : loaded.meta,
-                    childMetas: loaded.childMetas,
-                    document: Document(raw: session.draft),
-                    gridColumns: loaded.gridColumns)
-                    .environment(\.editSession, session)
+                .padding()
+                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .padding()
-            .frame(maxWidth: 900, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .environment(\.formScroll, scroll)
         }
     }
 
@@ -139,13 +142,20 @@ struct NewDocumentSheet: View {
     }
 
     private func create() {
-        guard let writeSession = model.writeSession, let session else { return }
+        guard let writeSession = model.writeSession, let session,
+            case .loaded(let loaded) = state
+        else { return }
+        // Desk drops blank table lines before every save, in the form as
+        // well as in what it sends.
+        let cleaned = loaded.meta.removingEmptyRows(
+            from: session.draft, childMetas: loaded.childMetas)
+        if cleaned != session.draft { session.draft = cleaned }
         isCreating = true
         errorMessage = nil
         Task {
             defer { isCreating = false }
             do {
-                var draft = session.draft
+                var draft = cleaned
                 draft["doctype"] = .string(doctype)
                 let id = newName.trimmingCharacters(in: .whitespaces)
                 if !id.isEmpty {

@@ -66,6 +66,13 @@ public enum ReadMethod: String, Sendable, CaseIterable {
     case loggedUser = "frappe.auth.get_logged_user"
     case isFollowed = "frappe.desk.form.document_follow.is_document_followed"
     case dashboardChartGet = "frappe.desk.doctype.dashboard_chart.dashboard_chart.get"
+    /// What Desk asks when an item is picked on a transaction line: the
+    /// item's name, UOM, list price and defaults. A read as this client
+    /// calls it — the one write the server has on this path (recording a
+    /// sent rate as the item's price) needs a rate in the request, which
+    /// `ItemDetails.arguments` never sends, and Frappe rolls back whatever a
+    /// GET request changed in any case.
+    case itemDetails = "erpnext.stock.get_item_details.get_item_details"
 }
 
 /// A list-endpoint filter, serialized as Frappe's `[fieldname, operator, value]`.

@@ -29,7 +29,10 @@ struct EditableFieldView: View {
 
         case .link:
             LinkSuggestField(
-                doctype: field.options ?? "", text: stringBinding)
+                doctype: field.options ?? "", text: stringBinding
+            ) { _ in
+                session.linkSettled?(field.fieldname)
+            }
 
         case .dynamicLink:
             // options names the sibling field holding the target DocType.
@@ -118,7 +121,7 @@ private struct NumericField: View {
     init(value: Binding<FrappeValue?>, integer: Bool) {
         self.value = value
         self.integer = integer
-        _text = State(initialValue: Self.display(value.wrappedValue, integer: integer))
+        _text = State(initialValue: NumericText.display(value.wrappedValue, integer: integer))
     }
 
     var body: some View {
@@ -134,35 +137,53 @@ private struct NumericField: View {
             .onChange(of: text) { _, newText in
                 // The canonical text of the current value (set on blur) is
                 // not an edit; reparsing it would only shed precision.
-                guard newText != Self.display(value.wrappedValue, integer: integer)
+                guard newText != NumericText.display(value.wrappedValue, integer: integer)
                 else { return }
-                if newText.isEmpty {
-                    value.wrappedValue = integer ? .int(0) : .double(0)
-                } else if integer, let parsed = NumberInput.int(from: newText) {
-                    value.wrappedValue = .int(parsed)
-                } else if !integer, let parsed = NumberInput.double(from: newText) {
-                    value.wrappedValue = .double(parsed)
+                if let parsed = NumericText.value(from: newText, integer: integer) {
+                    value.wrappedValue = parsed
                 }
             }
             .onChange(of: focused) { _, isFocused in
                 // Re-canonicalize on blur so "3." becomes "3" and "100000"
                 // becomes "100,000".
                 if !isFocused {
-                    text = Self.display(value.wrappedValue, integer: integer)
+                    text = NumericText.display(value.wrappedValue, integer: integer)
+                }
+            }
+            .onChange(of: value.wrappedValue) { _, newValue in
+                // A value that arrives from elsewhere (a picked item's rate)
+                // shows at once, unless this is the field being typed in.
+                if !focused {
+                    text = NumericText.display(newValue, integer: integer)
                 }
             }
     }
+}
 
-    private static func display(_ value: FrappeValue?, integer: Bool) -> String {
+/// How a number reads and parses while it is being typed — shared by the
+/// form's numeric field and the grid's numeric cell.
+enum NumericText {
+    /// The canonical text of a value: grouped like the display formatters
+    /// print it, empty when there is no value yet.
+    static func display(_ value: FrappeValue?, integer: Bool) -> String {
         if integer { return value?.intValue?.formatted() ?? "" }
         guard let number = value?.doubleValue else { return "" }
         return number.formatted(.number.precision(.fractionLength(0...9)))
     }
+
+    /// The value typed text stands for: zero once the field is cleared, nil
+    /// while the text isn't a number yet ("-", "3.4.") and the draft should
+    /// keep what it has.
+    static func value(from text: String, integer: Bool) -> FrappeValue? {
+        if text.isEmpty { return integer ? .int(0) : .double(0) }
+        if integer { return NumberInput.int(from: text).map(FrappeValue.int) }
+        return NumberInput.double(from: text).map(FrappeValue.double)
+    }
 }
 
 /// Date / datetime editor over Frappe's wire strings, pinned to UTC like
-/// the display formatters.
-private struct WireDateEditor: View {
+/// the display formatters. Also the grid's date cell.
+struct WireDateEditor: View {
     let value: Binding<FrappeValue?>
     let withTime: Bool
 

@@ -190,11 +190,71 @@ public struct DemoDataSource: DataSource {
     }
 
     public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
-        guard doctype == "Customer" else { return [] }
-        let customers = ["Grant Plastics Ltd.", "Northwind Research", "Zany Brainy"]
-        return customers
-            .filter { query.isEmpty || $0.lowercased().contains(query.lowercased()) }
-            .map { LinkOption(value: $0) }
+        let needle = query.lowercased()
+        switch doctype {
+        case "Customer":
+            let customers = ["Grant Plastics Ltd.", "Northwind Research", "Zany Brainy"]
+            return customers
+                .filter { needle.isEmpty || $0.lowercased().contains(needle) }
+                .map { LinkOption(value: $0) }
+        case "Item":
+            // Code plus name, as the server's search returns them — the
+            // invoice's line items type-ahead against these.
+            return Self.items
+                .filter {
+                    needle.isEmpty || $0.code.lowercased().contains(needle)
+                        || $0.name.lowercased().contains(needle)
+                }
+                .map { LinkOption(value: $0.code, description: $0.name) }
+        default:
+            return []
+        }
+    }
+
+    private struct DemoItem {
+        let code: String
+        let name: String
+        let uom: String
+        let price: Double
+    }
+
+    private static let items = [
+        DemoItem(code: "WT-1000", name: "Wind Turbine 1kW", uom: "Nos", price: 1850),
+        DemoItem(code: "WT-2400", name: "Wind Turbine 2.4kW", uom: "Nos", price: 2400),
+        DemoItem(code: "MNT-KIT", name: "Mounting Kit", uom: "Set", price: 95),
+        DemoItem(code: "INV-5000", name: "Grid-Tie Inverter 5kW", uom: "Nos", price: 1290),
+        DemoItem(code: "CBL-10", name: "Cable Harness 10m", uom: "Nos", price: 48),
+    ]
+
+    /// Shaped like the server's answer, working values included: the rate
+    /// comes back as zero beside the list price it is to be derived from,
+    /// and the item is found whatever case it was typed in.
+    public func itemDetails(context: [String: FrappeValue]) async throws
+        -> [String: FrappeValue]? {
+        let code = context[ItemDetails.itemField]?.nonEmptyString ?? ""
+        guard let item = Self.items.first(where: { $0.code.lowercased() == code.lowercased() })
+        else {
+            throw ERPNextError(message: "Item \(code) not found", statusCode: 404)
+        }
+        let quantity = context["qty"]?.doubleValue.flatMap { $0 == 0 ? nil : $0 } ?? 1
+        return [
+            "item_code": .string(item.code),
+            "item_name": .string(item.name),
+            "description": .string(item.name),
+            "uom": .string(item.uom),
+            "stock_uom": .string(item.uom),
+            "conversion_factor": .double(1),
+            "qty": .double(quantity),
+            "stock_qty": .double(quantity),
+            "price_list_rate": .double(item.price),
+            "base_price_list_rate": .double(item.price),
+            "discount_percentage": .double(0),
+            "discount_amount": .double(0),
+            "rate": .double(0),
+            "amount": .double(0),
+            "has_serial_no": .int(0),
+            "has_batch_no": .int(0),
+        ]
     }
 
     public func document(_ doctype: String, name: String) async throws -> Document {

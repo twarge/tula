@@ -1154,3 +1154,366 @@ final class ReportFilterDefaultsTests: XCTestCase {
         XCTAssertNil(bare[1].defaultValue)
     }
 }
+
+final class ChildRowTests: XCTestCase {
+    private func invoiceMetas() throws -> (parent: DocTypeMeta, children: [String: DocTypeMeta]) {
+        let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))
+        return (try XCTUnwrap(bundle.metas.first), bundle.childMetas)
+    }
+
+    func testJavaScriptTruthiness() {
+        XCTAssertFalse(FrappeValue.null.isTruthy)
+        XCTAssertFalse(FrappeValue.string("").isTruthy)
+        XCTAssertFalse(FrappeValue.int(0).isTruthy)
+        XCTAssertFalse(FrappeValue.double(0).isTruthy)
+        XCTAssertFalse(FrappeValue.bool(false).isTruthy)
+        // A non-empty string is truthy whatever it says.
+        XCTAssertTrue(FrappeValue.string("0").isTruthy)
+        XCTAssertTrue(FrappeValue.double(0.5).isTruthy)
+    }
+
+    /// Desk's remove_empty_rows: a line whose list-view cells are all blank
+    /// goes; one holding anything stays, wherever it sits in the table.
+    func testEmptyRowsAreDroppedOnSave() throws {
+        let (parent, children) = try invoiceMetas()
+        let draft: [String: FrappeValue] = [
+            "customer": .string("Northwind Research"),
+            "items": .array([
+                .object(["doctype": .string("Sales Invoice Item")]),
+                .object(["item_code": .string("WT-1000"), "qty": .double(2)]),
+                .object(["item_code": .string(""), "qty": .double(0), "rate": .null]),
+                .object(["qty": .double(1)]),
+            ]),
+        ]
+        let cleaned = parent.removingEmptyRows(from: draft, childMetas: children)
+        let items = try XCTUnwrap(cleaned["items"]?.arrayValue)
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].objectValue?["item_code"]?.stringValue, "WT-1000")
+        XCTAssertEqual(items[1].objectValue?["qty"]?.doubleValue, 1)
+        XCTAssertEqual(cleaned["customer"]?.stringValue, "Northwind Research")
+    }
+
+    /// With no list-view fields the rule has nothing to judge by, so every
+    /// row survives; a table whose child meta is missing is left alone too.
+    func testRowsSurviveWithoutListViewFields() throws {
+        let parent = DocTypeMeta(raw: [
+            "name": .string("Parent"),
+            "fields": .array([
+                .object([
+                    "fieldname": .string("lines"), "fieldtype": .string("Table"),
+                    "options": .string("Line"),
+                ]),
+                .object([
+                    "fieldname": .string("extras"), "fieldtype": .string("Table"),
+                    "options": .string("Unknown Child"),
+                ]),
+            ]),
+        ])
+        let line = DocTypeMeta(raw: [
+            "name": .string("Line"),
+            "fields": .array([
+                .object(["fieldname": .string("note"), "fieldtype": .string("Data")])
+            ]),
+        ])
+        let draft: [String: FrappeValue] = [
+            "lines": .array([.object([:]), .object(["note": .string("x")])]),
+            "extras": .array([.object([:])]),
+        ]
+        let cleaned = parent.removingEmptyRows(from: draft, childMetas: ["Line": line])
+        XCTAssertEqual(cleaned["lines"]?.arrayValue?.count, 2)
+        XCTAssertEqual(cleaned["extras"]?.arrayValue?.count, 1)
+    }
+
+    func testRowAmountFollowsQuantityAndRate() throws {
+        let item = try XCTUnwrap(try invoiceMetas().children["Sales Invoice Item"])
+        XCTAssertTrue(item.hasRowAmountConvention)
+        let row = item.settingRowAmount(in: ["qty": .double(3), "rate": .double(95)])
+        XCTAssertEqual(row["amount"]?.doubleValue, 285)
+        // Until both factors exist the amount is the server's to fill.
+        let partial = item.settingRowAmount(in: ["qty": .double(3)])
+        XCTAssertNil(partial["amount"])
+    }
+
+    func testDemoItemsTypeAheadByCodeOrName() async throws {
+        let demo = DemoDataSource()
+        let all = try await demo.searchLink(doctype: "Item", query: "")
+        XCTAssertEqual(all.count, 5)
+        let turbines = try await demo.searchLink(doctype: "Item", query: "turbine")
+        XCTAssertEqual(turbines.map(\.value), ["WT-1000", "WT-2400"])
+        XCTAssertEqual(turbines.first?.description, "Wind Turbine 1kW")
+    }
+}
+
+final class ItemDetailsTests: XCTestCase {
+    private func lineMeta() throws -> DocTypeMeta {
+        let bundle = try MetaDecoder.bundle(from: Data(DemoFixtures.salesInvoiceMeta.utf8))
+        return try XCTUnwrap(bundle.childMetas["Sales Invoice Item"])
+    }
+
+    /// A line DocType with ERPNext's own pricing columns, which the demo
+    /// fixture leaves out.
+    private func pricedLineMeta() -> DocTypeMeta {
+        func field(_ name: String, _ type: String, _ extra: [String: FrappeValue] = [:])
+            -> FrappeValue {
+            .object(
+                ["fieldname": .string(name), "fieldtype": .string(type)]
+                    .merging(extra) { $1 })
+        }
+        return DocTypeMeta(raw: [
+            "name": .string("Sales Order Item"),
+            "fields": .array([
+                field("item_code", "Link", ["options": .string("Item")]),
+                field("qty", "Float"),
+                field("price_list_rate", "Currency"),
+                field("discount_percentage", "Percent"),
+                field("rate", "Currency", ["precision": .string("2")]),
+                field("amount", "Currency"),
+                field("item_tax_template", "Link"),
+            ]),
+        ])
+    }
+
+    func testOnlyTransactionLinesAskTheServer() throws {
+        let line = try lineMeta()
+        XCTAssertTrue(ItemDetails.applies(parentDoctype: "Sales Invoice", childMeta: line))
+        XCTAssertTrue(ItemDetails.applies(parentDoctype: "Purchase Order", childMeta: line))
+        // Stock entries and BOMs have an item column and their own rules.
+        XCTAssertFalse(ItemDetails.applies(parentDoctype: "Stock Entry", childMeta: line))
+        XCTAssertFalse(ItemDetails.applies(parentDoctype: nil, childMeta: line))
+        // An item_code that isn't a link to Item is something else.
+        let other = DocTypeMeta(raw: [
+            "name": .string("Line"),
+            "fields": .array([
+                .object(["fieldname": .string("item_code"), "fieldtype": .string("Data")])
+            ]),
+        ])
+        XCTAssertFalse(ItemDetails.applies(parentDoctype: "Sales Invoice", childMeta: other))
+    }
+
+    func testPricingContextCarriesWhatDeskSends() throws {
+        let parent: [String: FrappeValue] = [
+            "name": .string("ACC-SINV-2025-00042"), "company": .string("Wind Power LLC"),
+            "customer": .string("Northwind Research"), "currency": .string("USD"),
+            "selling_price_list": .string("Standard Selling"),
+            "posting_date": .string("2025-07-18"), "is_pos": .int(0),
+            "pos_profile": .string("Counter"), "update_stock": .int(1),
+            "ignore_pricing_rule": .int(0), "project": .string("Rooftop"),
+        ]
+        let row: [String: FrappeValue] = [
+            "name": .string("row2"), "item_code": .string("WT-2400"),
+            "rate": .double(2400), "uom": .string("Box"), "conversion_factor": .double(12),
+            "warehouse": .string("Stores - WPL"),
+        ]
+        let context = try XCTUnwrap(
+            ItemDetails.arguments(
+                parentDoctype: "Sales Invoice", parent: parent, row: row,
+                childDoctype: "Sales Invoice Item"))
+
+        XCTAssertEqual(context["item_code"], .string("WT-2400"))
+        XCTAssertEqual(context["doctype"], .string("Sales Invoice"))
+        XCTAssertEqual(context["name"], .string("ACC-SINV-2025-00042"))
+        XCTAssertEqual(context["child_doctype"], .string("Sales Invoice Item"))
+        XCTAssertEqual(context["child_docname"], .string("row2"))
+        XCTAssertEqual(context["customer"], .string("Northwind Research"))
+        XCTAssertEqual(context["price_list"], .string("Standard Selling"))
+        XCTAssertEqual(context["warehouse"], .string("Stores - WPL"))
+        XCTAssertEqual(context["project"], .string("Rooftop"))
+        XCTAssertEqual(context["update_stock"], .int(1))
+        // No quantity yet asks for one, as Desk does.
+        XCTAssertEqual(context["qty"], .int(1))
+        // The document isn't sent, so its date travels in the context.
+        XCTAssertEqual(context["transaction_date"], .string("2025-07-18"))
+
+        // A sent rate can be recorded as the item's price; the old item's
+        // UOM must not outlive it; empty values and an unused POS profile
+        // only lengthen the URL.
+        for absent in [
+            "rate", "net_rate", "uom", "conversion_factor", "is_pos", "pos_profile",
+            "ignore_pricing_rule",
+        ] {
+            XCTAssertNil(context[absent], absent)
+        }
+
+        // A line with no item has nothing to ask about.
+        XCTAssertNil(
+            ItemDetails.arguments(
+                parentDoctype: "Sales Invoice", parent: parent, row: ["qty": .double(2)],
+                childDoctype: "Sales Invoice Item"))
+    }
+
+    func testAnswerFillsTheLine() async throws {
+        let line = try lineMeta()
+        let asked: [String: FrappeValue] = [
+            "doctype": .string("Sales Invoice Item"), "item_code": .string("wt-1000"),
+        ]
+        let context = try XCTUnwrap(
+            ItemDetails.arguments(
+                parentDoctype: "Sales Invoice", parent: [:], row: asked,
+                childDoctype: "Sales Invoice Item"))
+        let answer = try await DemoDataSource().itemDetails(context: context)
+        let details = try XCTUnwrap(answer)
+        let filled = ItemDetails.applying(details, to: asked, asked: asked, meta: line)
+
+        // The item's own spelling of its code, its name and UOM…
+        XCTAssertEqual(filled["item_code"], .string("WT-1000"))
+        XCTAssertEqual(filled["item_name"], .string("Wind Turbine 1kW"))
+        XCTAssertEqual(filled["uom"], .string("Nos"))
+        // …a quantity of one, the rate from the list price, and the amount.
+        XCTAssertEqual(filled["qty"]?.doubleValue, 1)
+        XCTAssertEqual(filled["rate"]?.doubleValue, 1850)
+        XCTAssertEqual(filled["amount"]?.doubleValue, 1850)
+        // The answer's working values are no column of this line.
+        XCTAssertNil(filled["price_list_rate"])
+        XCTAssertNil(filled["has_serial_no"])
+        XCTAssertEqual(filled["doctype"], .string("Sales Invoice Item"))
+    }
+
+    func testEditsMadeWhileWaitingSurvive() async throws {
+        let line = try lineMeta()
+        let asked: [String: FrappeValue] = ["item_code": .string("MNT-KIT")]
+        let answer = try await DemoDataSource().itemDetails(context: asked)
+        let details = try XCTUnwrap(answer)
+
+        // A quantity typed before the answer arrived stays, and the amount
+        // is worked out from it.
+        var typedQuantity = asked
+        typedQuantity["qty"] = .double(10)
+        let kept = ItemDetails.applying(details, to: typedQuantity, asked: asked, meta: line)
+        XCTAssertEqual(kept["qty"]?.doubleValue, 10)
+        XCTAssertEqual(kept["rate"]?.doubleValue, 95)
+        XCTAssertEqual(kept["amount"]?.doubleValue, 950)
+
+        // So does a rate.
+        var typedRate = asked
+        typedRate["rate"] = .double(80)
+        let own = ItemDetails.applying(details, to: typedRate, asked: asked, meta: line)
+        XCTAssertEqual(own["rate"]?.doubleValue, 80)
+        XCTAssertEqual(own["amount"]?.doubleValue, 80)
+
+        // Changing the item on a line that already had a rate takes the new
+        // item's price, as in Desk.
+        let swapped: [String: FrappeValue] = [
+            "item_code": .string("MNT-KIT"), "item_name": .string("Wind Turbine 1kW"),
+            "qty": .double(4), "rate": .double(1850), "amount": .double(7400),
+        ]
+        let repriced = ItemDetails.applying(
+            details.merging(["qty": .double(4)]) { $1 }, to: swapped, asked: swapped,
+            meta: line)
+        XCTAssertEqual(repriced["item_name"], .string("Mounting Kit"))
+        XCTAssertEqual(repriced["rate"]?.doubleValue, 95)
+        XCTAssertEqual(repriced["amount"]?.doubleValue, 380)
+    }
+
+    func testRateComesFromTheLinesOwnPricingColumns() {
+        let line = pricedLineMeta()
+        let asked: [String: FrappeValue] = [
+            "item_code": .string("WT-1000"), "item_tax_template": .string("Old Template"),
+        ]
+        let details: [String: FrappeValue] = [
+            "item_code": .string("WT-1000"), "qty": .double(2),
+            "price_list_rate": .double(99.99), "discount_percentage": .double(12.5),
+            "rate": .double(0), "amount": .double(0), "item_tax_template": .null,
+        ]
+        let filled = ItemDetails.applying(details, to: asked, asked: asked, meta: line)
+        XCTAssertEqual(filled["price_list_rate"]?.doubleValue, 99.99)
+        XCTAssertEqual(filled["discount_percentage"]?.doubleValue, 12.5)
+        // 99.99 less 12.5%, to the rate field's two places.
+        XCTAssertEqual(filled["rate"]?.doubleValue, 87.49)
+        XCTAssertEqual(try XCTUnwrap(filled["amount"]?.doubleValue), 174.98, accuracy: 1e-9)
+        // What the new item doesn't have, the old item's value doesn't keep.
+        XCTAssertEqual(filled["item_tax_template"], .null)
+    }
+
+    func testLineRateFollowsDesk() {
+        // List price alone.
+        XCTAssertEqual(ItemDetails.lineRate(of: ["price_list_rate": .double(100)]), 100)
+        // Less a percentage discount — free of binary noise.
+        XCTAssertEqual(
+            ItemDetails.lineRate(of: [
+                "price_list_rate": .double(100), "discount_percentage": .double(15),
+            ]), 85)
+        // A percentage margin, then an amount margin with a discount amount.
+        XCTAssertEqual(
+            ItemDetails.lineRate(of: [
+                "price_list_rate": .double(100), "margin_type": .string("Percentage"),
+                "margin_rate_or_amount": .double(10),
+            ]), 110)
+        XCTAssertEqual(
+            ItemDetails.lineRate(of: [
+                "price_list_rate": .double(100), "margin_type": .string("Amount"),
+                "margin_rate_or_amount": .double(5), "discount_amount": .double(20),
+                "discount_percentage": .double(50),
+            ]), 85)
+        // No price found is a rate of zero, as in Desk.
+        XCTAssertEqual(ItemDetails.lineRate(of: ["price_list_rate": .double(0)]), 0)
+        // With no list price at all, a rate the server sent stands.
+        XCTAssertEqual(ItemDetails.lineRate(of: ["rate": .double(42)]), 42)
+        XCTAssertNil(ItemDetails.lineRate(of: [:]))
+    }
+
+    func testUnknownDemoItemIsAnError() async {
+        do {
+            _ = try await DemoDataSource().itemDetails(context: ["item_code": .string("NOPE")])
+            XCTFail("an item that doesn't exist has no details")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Item NOPE not found")
+        }
+    }
+
+    func testLiveRequestIsAGetNamingTheContextBothWays() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubServer.self]
+        StubServer.reply = Data(
+            #"{"message": {"item_name": "Wind Turbine 1kW", "price_list_rate": 1850.0}}"#.utf8)
+        let source = LiveDataSource(
+            client: ReadOnlyClient(
+                configuration: ServerConfiguration(
+                    baseURL: try XCTUnwrap(URL(string: "https://erp.example.com")),
+                    apiKey: "key", apiSecret: "secret"),
+                session: URLSession(configuration: configuration)))
+
+        let context: [String: FrappeValue] = [
+            "item_code": .string("WT-1000"), "doctype": .string("Sales Invoice"),
+        ]
+        let answer = try await source.itemDetails(context: context)
+        let details = try XCTUnwrap(answer)
+        XCTAssertEqual(details["item_name"], .string("Wind Turbine 1kW"))
+        XCTAssertEqual(details["price_list_rate"]?.doubleValue, 1850)
+
+        let request = try XCTUnwrap(StubServer.lastRequest)
+        XCTAssertEqual(request.httpMethod, "GET")
+        let url = try XCTUnwrap(request.url)
+        XCTAssertEqual(url.path, "/api/method/erpnext.stock.get_item_details.get_item_details")
+        let query = try XCTUnwrap(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        // `args` is the parameter's name through v15, `ctx` after it.
+        for name in ["args", "ctx"] {
+            let json = try XCTUnwrap(query.first { $0.name == name }?.value, name)
+            XCTAssertEqual(try FrappeValue.decode(from: Data(json.utf8)), .object(context))
+        }
+        // The whole document never rides along.
+        XCTAssertNil(query.first { $0.name == "doc" })
+    }
+}
+
+/// Answers every request of a URLSession it is installed in with `reply`.
+private final class StubServer: URLProtocol {
+    static var reply = Data()
+    static var lastRequest: URLRequest?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lastRequest = request
+        if let url = request.url,
+            let response = HTTPURLResponse(
+                url: url, statusCode: 200, httpVersion: nil, headerFields: nil) {
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        }
+        client?.urlProtocol(self, didLoad: Self.reply)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}

@@ -493,14 +493,16 @@ permission error if the user lacks the role.
 **W3 — Field editing (L, the core). *Shipped.*** Edit mode on drafts (+ `allow_on_submit` fields on
 submitted docs); the field registry grows editable counterparts per fieldtype (TextField /
 TextEditor / numeric with formatters / pickers / Toggle / Select Picker / Link type-ahead
-reusing the filter-chip search / editable child-table rows via the row-detail sheet / file
-picker for Attach; HTML fields edit as plain text in v1); enforcement becomes real:
+reusing the filter-chip search / editable child-table rows, in the grid and via the
+row-detail sheet / file picker for Attach; HTML fields edit as plain text in v1);
+enforcement becomes real:
 `read_only`, `reqd`, `set_only_once`, permlevels, `read_only_depends_on` and
 `mandatory_depends_on` through the existing JavaScriptCore evaluator; save via PUT with the
 cached `modified` token (optimistic concurrency — TimestampMismatch → reload banner, draft
 lost in v1); auto-refresh pauses during an edit session. **Server-computed fields rule:**
 the client does only convention-safe math (amount = qty × rate); taxes, pricing rules, and
-totals refresh from server truth on save, displayed as such.
+totals refresh from server truth on save, displayed as such. (Relaxed in one place since:
+a picked item's line rate, see *Item details on pick* below.)
 
 *As built:* an explicit edit session (pencil in the periphery bar while unlocked) rather
 than always-live fields — an observable `EditSession` (draft dict + draft-backed
@@ -514,6 +516,63 @@ reload banner — draft lost in v1, as designed. Attach fields upload through th
 store the returned `file_url`. Deferred: client-side mandatory validation (the server
 reports it inline), Time as a plain text field, and HTML/markdown fields editing as
 plain text.
+
+*Editing lines in the grid (Nov 2026):* in an edit session a child table edits in place,
+as Desk's grid does, and the row sheet is no longer on the way to adding a line.
+Tapping a line makes it the active one — one at a time — and its columns turn into
+compact editors (`InlineCellEditor`: text, numbers, link type-ahead with the suggestions
+opening inside the cell, a menu for Select, a checkbox, a date); read-only columns, and
+the fieldtypes with no grid editor (rich text, code, attachments), stay as display. Add
+Row sits under the lines and appends one that is editable at once. Return and Tab walk
+the cells and run on past the end of a line: to the next line, or to a new one after
+the last (Desk's Tab); Shift-Tab goes back, ↑/↓ keep the column and change the line,
+and on iOS the keyboard carries the same steps, since its number pads have no Return.
+(Only a phone gets the number pads. On an iPad a numeric cell asks for the ordinary
+keyboard's numbers plane: for the number-pad types iPadOS floats a pad over the grid
+once a hardware keyboard is attached, covering the lines above and taking the next tap.)
+Return on a last line still blank ends the entry instead. Every cell edit writes
+through to the parent draft, the row's own `EditSession` supplying the editability
+rules; `amount = qty × rate` follows as either factor changes. The pencil still opens
+the full row for everything the grid doesn't show.
+
+Three Desk rules came with it. A line added and left blank is dropped at save
+(`DocTypeMeta.removingEmptyRows`, Desk's `remove_empty_rows`: every `in_list_view`
+field falsy), in the form as well as in what is sent. Lines can be added or deleted
+only where the table itself is writable (`EditSession.allowsRowChanges`: not
+read-only, and `allow_on_submit` on a submitted document). And a line added in this
+edit is a draft whatever its parent's docstatus, so its cells are editable.
+
+*Item details on pick (Nov 2026):* picking an item on a transaction line fills the line
+at once, as in Desk: name, UOM, a quantity of one, list price, accounts and whatever else
+`erpnext.stock.get_item_details.get_item_details` answers (`ItemDetails` in the kit, a
+new `ReadMethod`). It applies to ERPNext's own `sales_doctypes` and `purchase_doctypes`,
+on a line whose `item_code` links to Item. The lookup runs when the item cell is left
+holding a different item — not per keystroke, when the cell may hold half a code — from
+the grid and from the row sheet alike (`EditSession.linkSettled`). The answer is laid
+over the row's own fields only, and a field edited while it was on its way keeps the
+edit. A lookup that fails says so under the table and leaves the line as typed, for
+the server to judge on save.
+
+This is the one relaxation of the server-computed fields rule. The server answers with
+the ingredients of the rate rather than the rate, so the client derives it as Desk's
+`apply_pricing_rule_on_item` does — list price, plus margin, less discount
+(`ItemDetails.lineRate`) — and the server repeats the derivation on save. Taxes, free
+items and totals stay the server's alone.
+
+The call differs from Desk's in three ways. The document is not sent with it: the
+request is a GET and has to fit a URL, so the transaction date travels in the pricing
+context instead (as in ERPNext's own Material Request form), and rules that look across
+the document's other lines — mixed-condition pricing rules, a rate locked to a source
+order — take effect on save rather than on pick. No rate is ever sent, because the
+server can record a sent rate as an Item Price (Frappe also rolls back whatever a GET
+request changed). And the context goes under both of the parameter's names, `args`
+(through v15) and `ctx` (after): Frappe hands a method only the parameters it declares.
+
+The cells sit in the table's own horizontal scroll view, and neither SwiftUI's keyboard
+avoidance nor `ScrollViewProxy.scrollTo` looks past that to the form's vertical one.
+So the focused cell reports how far down the table it reaches (`InlineCellRevealKey`),
+and the table scrolls the form (`formScroll` in the environment) to a marker it keeps
+at that depth outside the horizontal scroller.
 
 **W4 — Creation (M, after W3). *Shipped.*** New-document buttons on lists/workspaces; Quick
 Entry sheets generated from the meta's quick-entry fields (Desk's own compact-create

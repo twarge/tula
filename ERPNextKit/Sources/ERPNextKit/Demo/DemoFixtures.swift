@@ -296,7 +296,11 @@ enum DemoFixtures {
                 {"fieldname": "item_name", "label": "Item Name", "fieldtype": "Data", "in_list_view": 1},
                 {"fieldname": "qty", "label": "Quantity", "fieldtype": "Float", "in_list_view": 1},
                 {"fieldname": "rate", "label": "Rate", "fieldtype": "Currency", "options": "currency", "in_list_view": 1},
-                {"fieldname": "amount", "label": "Amount", "fieldtype": "Currency", "options": "currency", "in_list_view": 1}
+                {"fieldname": "amount", "label": "Amount", "fieldtype": "Currency", "options": "currency", "in_list_view": 1, "read_only": 1},
+                {"fieldname": "uom", "label": "UOM", "fieldtype": "Link", "options": "UOM"},
+                {"fieldname": "margin_type", "label": "Margin Type", "fieldtype": "Select", "options": "\nPercentage\nAmount"},
+                {"fieldname": "is_free_item", "label": "Is Free Item", "fieldtype": "Check"},
+                {"fieldname": "service_start_date", "label": "Service Start Date", "fieldtype": "Date"}
               ]
             }
           ],

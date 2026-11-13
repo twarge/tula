@@ -156,6 +156,10 @@ public protocol DataSource: Sendable {
     /// the concrete implementation — an extension-only method silently
     /// resolves to the default and returns nothing.
     func searchLink(doctype: String, query: String) async throws -> [LinkOption]
+    /// What an item brings to a transaction line — name, UOM, list price,
+    /// defaults — for a pricing context built by `ItemDetails.arguments`.
+    /// Nil when the source has nothing to say.
+    func itemDetails(context: [String: FrappeValue]) async throws -> [String: FrappeValue]?
     /// Ordered column fieldnames from Desk's list settings for this DocType
     /// (the "List View Settings" document users edit via the list's gear in
     /// the web UI), or nil when none are configured.
@@ -207,6 +211,11 @@ extension DataSource {
     /// empty so conformances without a search backend still compile.
     public func searchLink(doctype: String, query: String) async throws -> [LinkOption] {
         []
+    }
+
+    public func itemDetails(context: [String: FrappeValue]) async throws
+        -> [String: FrappeValue]? {
+        nil
     }
 
     public func listViewColumns(doctype: String) async throws -> [String]? {
@@ -384,6 +393,17 @@ public struct LiveDataSource: DataSource {
             doctype, fields: ["name"], filters: filters,
             orderBy: "modified desc", limitStart: 0, limitPageLength: 20)
         return docs.map { LinkOption(value: $0.name) }
+    }
+
+    public func itemDetails(context: [String: FrappeValue]) async throws
+        -> [String: FrappeValue]? {
+        // The server's name for this parameter changed (`args` through v15,
+        // `ctx` after). Frappe hands a method only the parameters it
+        // declares, so sending both reaches either.
+        let json = try FrappeValue.object(context).encodedJSONString()
+        let data = try await client.data(
+            for: .method(.itemDetails, parameters: ["args": json, "ctx": json]))
+        return try FrappeValue.decode(from: data).objectValue?["message"]?.objectValue
     }
 
     public func reports() async throws -> [ReportInfo] {
