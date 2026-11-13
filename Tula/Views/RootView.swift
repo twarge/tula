@@ -138,8 +138,35 @@ struct RootView: View {
                 showingOmnibar = true
             }
         }
+        #if os(macOS)
+            .modifier(HostWindowSize())
+        #endif
     }
 }
+
+#if os(macOS)
+    extension EnvironmentValues {
+        /// The size of the window's content, for a sheet that scales with the
+        /// window it is presented over: a sheet can only measure itself.
+        @Entry var hostWindowSize: CGSize?
+    }
+
+    /// Publishes `hostWindowSize`. The size is this modifier's own state, so
+    /// resizing the window re-evaluates only the views that read it.
+    private struct HostWindowSize: ViewModifier {
+        @State private var size: CGSize?
+
+        func body(content: Content) -> some View {
+            content
+                .environment(\.hostWindowSize, size)
+                .onGeometryChange(for: CGSize.self) { proxy in
+                    proxy.size
+                } action: { newSize in
+                    size = newSize
+                }
+        }
+    }
+#endif
 
 /// The single Route → screen mapping. Three generic screens cover every
 /// destination in the app (ARCHITECTURE.md §5).

@@ -357,7 +357,12 @@ struct DocumentFormView<DashboardContent: View>: View {
         VStack(alignment: .leading, spacing: 16) {
             #if os(macOS)
                 if showsTabs {
-                    tabPicker(visibleTabs)
+                    // A segmented control doesn't compress: wider than the
+                    // form, it would push the whole form past both edges.
+                    ViewThatFits(in: .horizontal) {
+                        tabPicker(visibleTabs).pickerStyle(.segmented)
+                        tabPicker(visibleTabs).pickerStyle(.menu).fixedSize()
+                    }
                 }
             #endif
 
@@ -395,7 +400,6 @@ struct DocumentFormView<DashboardContent: View>: View {
                 Text(tab.label).tag(tab.id)
             }
         }
-        .pickerStyle(.segmented)
         .labelsHidden()
     }
 
@@ -405,7 +409,9 @@ struct DocumentFormView<DashboardContent: View>: View {
         /// than atop the scrolling form.
         @ToolbarContentBuilder
         private func tabToolbar(_ visibleTabs: [FormLayout.Tab]) -> some ToolbarContent {
-            let item = ToolbarItem(placement: .principal) { tabPicker(visibleTabs) }
+            let item = ToolbarItem(placement: .principal) {
+                tabPicker(visibleTabs).pickerStyle(.segmented)
+            }
             #if os(iOS)
                 if #available(iOS 27.1, *) {
                     // Left automatic, a segmented control may be inferred

@@ -40,6 +40,12 @@ final class SessionCache {
         return bundle
     }
 
+    /// The bundle if this session has already loaded it, for a caller that
+    /// has to decide something before it can await.
+    func cachedMetaBundle(for doctype: String) -> MetaBundle? {
+        metaBundles[doctype]
+    }
+
     func listViewColumns(for doctype: String, using source: any DataSource) async
         -> [String]? {
         if let cached = listColumns[doctype] { return cached }

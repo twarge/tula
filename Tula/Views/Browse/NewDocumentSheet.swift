@@ -14,6 +14,9 @@ struct NewDocumentSheet: View {
 
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    #if os(macOS)
+        @Environment(\.hostWindowSize) private var hostWindowSize
+    #endif
     @State private var state: LoadState<Loaded> = .loading
     @State private var session: EditSession?
     @State private var quickEntry = false
@@ -52,7 +55,7 @@ struct NewDocumentSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 if quickEntry {
-                    ToolbarItem(placement: .secondaryAction) {
+                    ToolbarItem(placement: Self.fullFormPlacement) {
                         Button("Edit Full Form") { quickEntry = false }
                     }
                 }
@@ -71,7 +74,15 @@ struct NewDocumentSheet: View {
             }
         }
         #if os(macOS)
-            .frame(minWidth: 620, minHeight: 520)
+            // Quick Entry stays the compact dialog; the full form has a fixed
+            // size, which is what makes the sheet follow the window.
+            .frame(
+                minWidth: fullFormSize?.width ?? Self.compactSize.width,
+                idealWidth: fullFormSize?.width,
+                maxWidth: fullFormSize?.width,
+                minHeight: fullFormSize?.height ?? Self.compactSize.height,
+                idealHeight: fullFormSize?.height,
+                maxHeight: fullFormSize?.height)
         #else
             .presentationDetents(quickEntry ? [.medium, .large] : [.large])
         #endif
@@ -79,6 +90,47 @@ struct NewDocumentSheet: View {
             await load()
         }
     }
+
+    /// The widest the form lays out; beyond it a wider sheet is only margin.
+    private static let formMaxWidth: CGFloat = 900
+
+    #if os(macOS)
+        /// A Mac sheet's button bar leaves a secondary action out altogether;
+        /// an automatic one sits at its leading end, across from Cancel.
+        private static let fullFormPlacement = ToolbarItemPlacement.automatic
+
+        /// The smallest the sheet gets, and Quick Entry's width.
+        private static let compactSize = CGSize(width: 620, height: 520)
+        /// How much narrower and shorter than the window the full form is.
+        /// The sheet's own title and button bars come on top of the height.
+        private static let windowInset = CGSize(width: 80, height: 120)
+
+        /// The full form's sheet: as much of the window it is presented over
+        /// as the form can use, tracking the window as it is resized. Nil
+        /// for Quick Entry, which is sized by the system.
+        private var fullFormSize: CGSize? {
+            guard !isCompact else { return nil }
+            let window = hostWindowSize ?? CGSize(width: 1000, height: 760)
+            return CGSize(
+                width: min(
+                    max(window.width - Self.windowInset.width, Self.compactSize.width),
+                    Self.formMaxWidth),
+                height: max(window.height - Self.windowInset.height, Self.compactSize.height))
+        }
+
+        /// Whether the sheet is Quick Entry's compact dialog. While the form
+        /// loads this is read from the metadata the list has already cached,
+        /// so the sheet opens at the size it is going to keep.
+        private var isCompact: Bool {
+            guard case .loading = state else { return quickEntry }
+            guard let meta = model.cache.cachedMetaBundle(for: doctype)?.metas.first else {
+                return false
+            }
+            return Self.opensInQuickEntry(meta)
+        }
+    #else
+        private static let fullFormPlacement = ToolbarItemPlacement.secondaryAction
+    #endif
 
     private func form(_ loaded: Loaded, session: EditSession) -> some View {
         ScrollViewReader { scroll in
@@ -112,7 +164,7 @@ struct NewDocumentSheet: View {
                         .environment(\.editSession, session)
                 }
                 .padding()
-                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: Self.formMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
             .environment(\.formScroll, scroll)
@@ -133,8 +185,7 @@ struct NewDocumentSheet: View {
             draft["doctype"] = .string(doctype)
             draft["docstatus"] = .int(0)
             session = EditSession(document: Document(raw: draft), docstatus: 0)
-            // Quick Entry only makes sense with a curated field set.
-            quickEntry = meta.quickEntry && !Self.quickEntryFieldRaws(meta).isEmpty
+            quickEntry = Self.opensInQuickEntry(meta)
             state = .loaded(loaded)
         } catch {
             state = .failed(error.localizedDescription)
@@ -200,6 +251,11 @@ struct NewDocumentSheet: View {
             }
         }
         return draft
+    }
+
+    /// Quick Entry only makes sense with a curated field set.
+    private static func opensInQuickEntry(_ meta: DocTypeMeta) -> Bool {
+        meta.quickEntry && !quickEntryFieldRaws(meta).isEmpty
     }
 
     private static func quickEntryFieldRaws(_ meta: DocTypeMeta) -> [FrappeValue] {
