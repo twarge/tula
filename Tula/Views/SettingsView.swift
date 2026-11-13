@@ -35,7 +35,8 @@ struct SettingsView: View {
                     if oldField != nil { applyIfChanged() }
                 }
                 .onDisappear(perform: applyIfChanged)
-                .frame(minWidth: 480, minHeight: 420)
+                .frame(minWidth: 340, minHeight: 260)
+                .background(ResizableWindow())
                 .onAppear(perform: load)
         #else
             NavigationStack {
@@ -110,10 +111,6 @@ struct SettingsView: View {
                     case nil:
                         EmptyView()
                     }
-                } footer: {
-                    Text(
-                        "Tula reads with GET requests to a fixed list of ERPNext's read APIs. It writes only while the toolbar lock is open, which lasts until Tula quits or these settings change, and only through a fixed list of ERPNext methods. For defense in depth, use an API key from an ERPNext user with read and report permissions only, so the server refuses any write even with the lock open. Generate one under User → Settings → API Access."
-                    )
                 }
             }
         }
@@ -175,3 +172,20 @@ struct SettingsView: View {
         save()
     }
 }
+
+#if os(macOS)
+    /// SwiftUI gives a `Settings` window no resize control, whatever the scene's
+    /// resizability says, so this adds one to the window it lands in. The form's
+    /// minimum frame still bounds how small the window can get.
+    private struct ResizableWindow: NSViewRepresentable {
+        final class Marker: NSView {
+            override func viewDidMoveToWindow() {
+                super.viewDidMoveToWindow()
+                window?.styleMask.insert(.resizable)
+            }
+        }
+
+        func makeNSView(context: Context) -> Marker { Marker() }
+        func updateNSView(_ nsView: Marker, context: Context) {}
+    }
+#endif

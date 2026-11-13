@@ -77,6 +77,10 @@ struct TulaApp: App {
                 SettingsView()
                     .environment(model)
             }
+            // Opens just big enough for the form with a connection test result,
+            // and resizes from there (see `ResizableWindow` in SettingsView).
+            .windowResizability(.contentMinSize)
+            .defaultSize(width: 420, height: 420)
         #endif
     }
 }
