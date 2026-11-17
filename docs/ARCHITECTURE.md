@@ -246,6 +246,11 @@ Settings and stored in the Keychain; nothing is ever sent anywhere but the confi
 The one exception is the server URL itself, which `SettingsSync` mirrors to the user's other
 devices through iCloud's key-value store (never the credentials, and never a URL carrying any).
 
+The same package builds `tula-mcp`, a Model Context Protocol server that exposes the read
+path to Claude: `TulaMCPCore` (protocol and tools, over `any DataSource`) and the `tula-mcp`
+executable (stdio, credentials). It reads through `ReadOnlyClient` and never constructs a
+`WriteClient` — see [MCP.md](MCP.md).
+
 ## 9. Data freshness
 
 Three tiers, of which the first two are implemented:

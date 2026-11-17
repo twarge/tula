@@ -23,6 +23,7 @@ for the full mapping.
 - `ERPNextKit/` — Swift package: the GET-only read client and the gated write
   client, metadata models, layout parser, report engine, demo fixtures.
   `swift test` runs its tests.
+  It also builds `tula-mcp`, an MCP server over the read client (below).
 - `Tula/` — the multiplatform SwiftUI app (macOS 14.4+, iOS 17.4+).
 - `project.yml` — [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec.
 
@@ -46,6 +47,20 @@ The server URL, and nothing else, syncs between your devices through iCloud's
 key-value store, so a second device needs only the API key and secret (and
 demo mode turned off). A URL arriving from another device is applied like an
 edit in Settings: the connection is rebuilt and the write lock relocks.
+
+## Asking Claude
+
+`tula-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server
+that lets Claude query the same ERPNext site — documents, metadata and reports —
+through the GET-only read client, so it cannot write.
+
+```sh
+swift build -c release --package-path ERPNextKit --product tula-mcp
+ERPNextKit/.build/release/tula-mcp login      # URL + API key/secret → Keychain
+claude mcp add tula -- "$PWD/ERPNextKit/.build/release/tula-mcp"
+```
+
+See [docs/MCP.md](docs/MCP.md) for the tools, Claude Desktop setup and demo mode.
 
 ## License
 
