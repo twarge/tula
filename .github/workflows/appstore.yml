@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Marketing version to build (defaults to project.yml's MARKETING_VERSION)"
+        description: "Marketing version to build (defaults to the project's MARKETING_VERSION)"
         required: false
         type: string
   push:
@@ -126,7 +126,7 @@ jobs:
           elif [[ -n "$INPUT_VERSION" ]]; then
             VERSION="$INPUT_VERSION"
           else
-            VERSION=$(sed -n 's/.*MARKETING_VERSION: "\([0-9.][0-9.]*\)".*/\1/p' project.yml | head -1)
+            VERSION=$(sed -n 's/.*"MARKETING_VERSION": "\([0-9.][0-9.]*\)".*/\1/p' Tula.xcodeproj/project.xcproj | head -1)
           fi
           [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "::error::Resolved version '$VERSION' is not a plain version number (tag like v1.2)"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -144,11 +144,6 @@ jobs:
         run: |
           ASC_KEY_PATH=~/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
             swift Scripts/check-appstore-version.swift
-
-      - name: Generate Xcode project
-        run: |
-          brew install xcodegen
-          xcodegen generate
 
       - name: Write export options
         run: |

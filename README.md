@@ -25,12 +25,11 @@ for the full mapping.
   `swift test` runs its tests.
   It also builds `tula-mcp`, an MCP server over the read client (below).
 - `Tula/` — the multiplatform SwiftUI app (macOS 14.4+, iOS 17.4+).
-- `project.yml` — [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec.
+- `Tula.xcodeproj` — the Xcode project (committed; edit it in Xcode).
 
 ## Building
 
 ```sh
-xcodegen generate       # produces Tula.xcodeproj (regenerate after adding files)
 open Tula.xcodeproj   # build & run the Tula scheme for My Mac or an iPhone
 ```
 

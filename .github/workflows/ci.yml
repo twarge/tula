@@ -48,13 +48,6 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      # The Xcode project is generated, not committed (project.yml is the
-      # source of truth).
-      - name: Generate Xcode project
-        run: |
-          brew install xcodegen
-          xcodegen generate
-
       - name: Build
         run: |
           xcodebuild build \
